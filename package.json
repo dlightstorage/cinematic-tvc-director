@@ -1,6 +1,6 @@
 {
   "name": "cinematic-tvc-director",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terminal commercial-production crews powered by selectable agent CLIs",
   "license": "UNLICENSED",
   "type": "module",

@@ -11,8 +11,12 @@ independent reviewers, stale-export prevention, selective change propagation,
 bounded revision loops, explicit failure retry, invalid JSON/output rejection,
 configuration validation, project locking, restart recovery, debates, selected
 director authority, custom-provider registration and host-skill installation.
+Version 0.2 adds an end-to-end original-workflow fixture covering all ten blind
+departments, all 155 parsed source decisions, trace-before-consolidation, final
+trace, structured master rows, standard-test evidence, handoff review and legacy
+state migration. The complete suite has 16 tests.
 
-`npm run check` parses all bundled executable modules and verifies the 23 role
+`npm run check` parses all bundled executable modules and verifies the 24 role
 reference paths. The skill-creator `quick_validate.py` validator accepts the main
 skill. YAML is only needed for this development-time validator, not the runtime.
 
@@ -50,6 +54,7 @@ authentication, independently of the ChatGPT connector. No npm registry
 publication was performed. Cross-platform CI results are available in the
 repository's Actions tab; local test results alone do not establish CI success.
 
-Paid media execution, deck rendering and automatic migration from the original
-Markdown-only project state are outside the implemented 0.1.0 terminal runtime.
-The original knowledge files remain available for use in a capable host.
+Paid media execution and native PPTX rendering remain outside the 0.2.0 terminal
+runtime. The approved export includes a print-ready HTML client presentation.
+Original Markdown-only project state can be imported with `tvc migrate`; legacy
+assets stay unapproved until their row and spend authorization are verified.

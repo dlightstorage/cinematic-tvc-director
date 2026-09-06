@@ -43,7 +43,8 @@ export function createProject(root, name, brief, config) {
   if (existsSync(join(projectDir(root), 'project.json'))) throw new Error('Project already exists.');
   const state = { schema: 'tvc-project.v1', name, createdAt: now(), stage: 'intake', brief,
     briefRevision: 1, config, tasks: [], decisions: [], locks: {}, entities: {}, changes: [],
-    runs: [], debates: [], plan: null, reviewRound: 0, reconciliation: null, reviews: {}, assets: [] };
+    runs: [], debates: [], plan: null, reviewRound: 0, reconciliation: null, reviews: {}, assets: [], masterRows: [], generationApprovals: [],
+    workflow: config.workflowMode === 'original' ? { mode: 'original', phase: '1-intake', rounds: {}, history: [], reports: {}, departmentDecisions: {} } : { mode: 'focused' } };
   saveProject(root, state);
   return state;
 }

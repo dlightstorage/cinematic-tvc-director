@@ -14,13 +14,20 @@ library and real delegated CLI runs. The user chooses the orchestrator and every
 department's tool, model and supported reasoning settings. The terminal runtime
 is bundled in this skill; no separate chat service is required.
 
+The terminal runtime defaults to the original six-stage production loop. It
+enforces the six ordered intake rounds, all 155 department source decisions,
+trace/consolidation/handoff barriers, evidenced standard tests and negative-brief
+review after major visual pivots. Use focused mode only when the user explicitly
+wants a narrow single-stage task.
+
 ## Start from saved state
 
 Read the current project's `.tvc/project.json` when present. It is authoritative;
 `_state/project-state.md` is its generated human-readable view. Do not reset a
 project to intake or re-ask answered decisions. For older projects that only have
-the Markdown state file, inspect it and carry its decisions into a new runtime
-project deliberately; automatic legacy-state migration is not implemented.
+the Markdown state file, use `migrate` with the original brief. It preserves the
+old file as `legacy-project-state.md`, imports explicit locks and pending
+decisions, and marks legacy assets for verification.
 
 Use `node "<skill-dir>/scripts/tvc.mjs" help` to inspect commands. `<skill-dir>` is
 the installed directory containing this file, not the current project directory.
@@ -34,6 +41,12 @@ authentication is not successful verification. `setup` selects enabled providers
 the default department model and a separately selectable director. `assign` changes
 individual roles. `skills attach` adds domain guidance to a role.
 
+Use `studio` for the interactive terminal control room. Use `catalog refresh` and
+`catalog list` only to discover current public model metadata. A catalog item is
+not proof of account access or relay compatibility. Use `plans` for dated vendor
+access/billing references; never purchase a plan, enable overages or spend credits
+on the user's behalf.
+
 The bundled relays come from `amElnagdy/delegate-skills`; see
 [upstream.md](references/upstream.md) for provenance. Use the CLI adapters as code,
 not as evidence that every provider is installed or has been tested locally.
@@ -42,9 +55,10 @@ tool from a model available through that tool.
 
 ## Produce the commercial
 
-1. Create a project from the user's brief using `init`, then `plan`. The selected
-   director produces a saved task graph, missing-input questions and a reviewable
-   summary. Keep narrow requests narrow.
+1. Create a project from the user's brief using `init`, then `plan`. In original
+   mode, `plan` first runs scope gates and pauses for actual user choices. Re-run
+   it after answering pending gates. The selected director then produces a saved
+   task graph and reviewable summary.
 2. Present the plan and essential missing decisions. Use `approve plan` and
    `approve <decision-id> --value ...` to record the user's answers. Existing user
    authorization can satisfy plan approval; do not ask again merely because a
@@ -105,7 +119,9 @@ targets a specific task. Review failures have a bounded revision loop; inspect
 failed tasks while retaining completed unrelated work.
 
 This version generates media prompt documents and registers externally generated
-assets using `assets add`. It does not call paid image/video/audio services itself.
+assets using `generation authorize` followed by `assets add`. Assets must map to a
+structured production-bible master row. It does not call paid image/video/audio
+services itself.
 When the host has a generation connector and generation is requested, apply the
 production gates and the user's spend authorization, then register every result
 against its entity and master row. Do not claim that planning-model selection

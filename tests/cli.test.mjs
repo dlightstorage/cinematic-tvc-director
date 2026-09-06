@@ -15,7 +15,7 @@ test('terminal setup, custom provider, model binding, install and project snapsh
     const r = spawnSync(process.execPath, [cli, ...args, '--json'], { env, cwd: dir, encoding: 'utf8', windowsHide: true });
     assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
   };
-  call('setup','--provider','codex');
+  call('setup','--provider','codex','--workflow','focused');
   call('providers','add','fixture','--relay',fixture);
   call('assign','director','--provider','fixture');
   const config = JSON.parse(readFileSync(join(env.TVC_HOME,'config.json')));
@@ -29,7 +29,7 @@ test('terminal setup, custom provider, model binding, install and project snapsh
   const after = JSON.parse(readFileSync(join(project,'.tvc/project.json')));
   assert.equal(after.config.roles.dop.model, 'custom-model');
   const installed = call('install-skill','--target',join(dir,'skills'));
-  assert.ok(existsSync(join(installed,'scripts/tvc.mjs')));
+  assert.ok(existsSync(join(installed.destination,'scripts/tvc.mjs')));
   const duplicate = spawnSync(process.execPath,[cli,'install-skill','--target',join(dir,'skills')],{env,cwd:dir,encoding:'utf8',windowsHide:true});
   assert.equal(duplicate.status,1);
   assert.match(duplicate.stderr,/already exists/);

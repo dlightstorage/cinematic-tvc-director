@@ -10,8 +10,12 @@ import { discover, invoke, parseObject } from './lib/adapter.mjs';
 import { readJSON, atomicJSON, createProject, loadProject, saveProject, withProjectLock, now, inside } from './lib/store.mjs';
 import { makePlan, runProject, debate, exportProject, changeEntity, invalidate, validateDeliverable } from './lib/engine.mjs';
 import { installSkill, installProvider } from './lib/install.mjs';
+import { answerGate, productionSignature } from './lib/workflow.mjs';
+import { refreshCatalog, catalog, estimateTokens } from './lib/catalog.mjs';
+import { plans } from './lib/plans.mjs';
+import { migrateLegacy } from './lib/migrate.mjs';
 
-const help = `Cinematic TVC Director 0.1.0
+const help = `Cinematic TVC Director 0.2.0
 
   tvc setup [--provider codex] [--model MODEL] [--enable codex,claude,agy]
   tvc doctor                         Discover installed CLIs, auth and models
@@ -19,14 +23,22 @@ const help = `Cinematic TVC Director 0.1.0
   tvc providers install NAME         Install codex, claude or agy via vendor installer
   tvc providers add NAME --relay /absolute/custom.mjs
   tvc models --provider NAME         Discover available model IDs
+  tvc catalog refresh [openrouter|modelsdev]
+  tvc catalog list [--search TEXT] [--band free|economy|standard|premium] [--size compact|medium|large] [--limit N]
+  tvc catalog estimate MODEL --input-tokens N --output-tokens N
+  tvc plans [PROVIDER]               Subscription/API access guide (no purchase)
   tvc roles                          Show role bindings
   tvc assign ROLE --provider NAME [--model MODEL] [--effort LEVEL]
-  tvc configure [--authority ask|director] [--concurrency N] [--max-rounds N]
+  tvc configure [--workflow original|focused] [--authority ask|director] [--concurrency N] [--max-rounds N]
+  tvc studio                         Interactive terminal control room
   tvc skills attach ROLE PATH        Attach another skill folder to a role
-  tvc install-skill --host codex|claude|agents [--target PATH]
+  tvc install-skill --host codex|claude|agents [--target PATH] [--update]
 
   tvc init DIRECTORY --brief FILE    Create a production project
+  tvc migrate DIRECTORY --brief FILE Import an original Markdown-only project state
   tvc plan                          Have the selected director plan the work
+  tvc extend --deliverables LIST     Add generation deliverables without restarting
+  tvc generation authorize --file QUOTE.json --yes
   tvc approve plan                   Approve the saved execution plan
   tvc decisions                      Show required user decisions
   tvc approve ID --value TEXT        Answer a decision
@@ -45,9 +57,9 @@ Project commands use the current directory or --project PATH.
 --json produces machine-readable output. Plans and model runs are persisted locally.
 `;
 
-const strings = ['provider','model','enable','effort','variant','project','brief','value','entity','reason','instruction','roles','host','target','relay','file','authority','concurrency','max-rounds','timeout'];
+const strings = ['provider','model','enable','effort','variant','project','brief','value','entity','reason','instruction','roles','host','target','relay','file','authority','concurrency','max-rounds','timeout','workflow','search','band','size','input-tokens','output-tokens','deliverables','limit','offset'];
 const options = Object.fromEntries(strings.map(key => [key, { type: 'string' }]));
-for (const key of ['help','json','retry-failed','yes']) options[key] = { type: 'boolean' };
+for (const key of ['help','json','retry-failed','yes','update']) options[key] = { type: 'boolean' };
 const { values: flags, positionals } = parseArgs({ options, allowPositionals: true });
 const [command, subcommand, argument] = positionals;
 const root = resolve(flags.project || process.cwd());
@@ -62,41 +74,50 @@ function applyDials(config) {
   if (flags.concurrency) config.concurrency = Number(flags.concurrency);
   if (flags['max-rounds']) config.maxRounds = Number(flags['max-rounds']);
   if (flags.timeout) config.timeoutSeconds = Number(flags.timeout);
+  if (flags.workflow) config.workflowMode = flags.workflow;
   return config;
 }
 async function setup() {
-  if (existsSync(configPath())) throw new Error('Config already exists. Use assign/configure/providers add to update it.');
+  const existing = existsSync(configPath()) ? loadConfig() : null;
   let config;
   if (flags.provider) {
-    config = defaultConfig(flags.provider, flags.model);
-    if (flags.enable) config.enabled = [...new Set([flags.provider, ...flags.enable.split(',').map(s => s.trim())])];
+    config = existing ? structuredClone(existing) : defaultConfig(flags.provider, flags.model);
+    config.default = { implementer: flags.provider, ...(flags.model ? { model: flags.model } : {}) };
+    config.enabled = [...new Set([...(flags.enable ? flags.enable.split(',').map(s => s.trim()) : config.enabled), flags.provider])];
   } else {
     required(stdin.isTTY, 'For non-interactive setup pass --provider NAME and optional --model.');
     const report = await discover();
     show({ installed: report.discovered.map(d => ({ name: d.key, authenticated: d.authenticated, models: d.models })) });
     const terminal = createInterface({ input: stdin, output: stdout });
     try {
-      const enabled = (await terminal.question('Enable tools (comma-separated, e.g. codex,claude,agy): ')).split(',').map(s => s.trim()).filter(Boolean);
+      const previousEnabled = existing?.enabled.join(',') || 'codex';
+      const enabled = ((await terminal.question(`Enable tools (comma-separated) [${previousEnabled}]: `)).trim() || previousEnabled).split(',').map(s => s.trim()).filter(Boolean);
       required(enabled.length, 'Select at least one tool.');
-      const provider = (await terminal.question(`Default crew tool [${enabled[0]}]: `)).trim() || enabled[0];
-      const model = (await terminal.question('Default model ID (blank uses tool settings): ')).trim();
-      config = defaultConfig(provider, model); config.enabled = enabled;
-      const orchestrator = (await terminal.question(`Director tool [${provider}]: `)).trim() || provider;
-      const directorModel = (await terminal.question('Director model ID (blank uses tool settings): ')).trim();
+      const oldProvider = existing?.default.implementer || enabled[0];
+      const provider = (await terminal.question(`Default crew tool [${oldProvider}]: `)).trim() || oldProvider;
+      const oldModel = existing?.default.model || '';
+      const model = (await terminal.question(`Default model ID [${oldModel || 'tool default'}]: `)).trim() || oldModel;
+      config = existing ? structuredClone(existing) : defaultConfig(provider, model); config.enabled = enabled;
+      config.default = { implementer: provider, ...(model ? { model } : {}) };
+      const oldDirector = existing?.orchestrator.implementer || provider;
+      const orchestrator = (await terminal.question(`Director tool [${oldDirector}]: `)).trim() || oldDirector;
+      const oldDirectorModel = existing?.orchestrator.model || '';
+      const directorModel = (await terminal.question(`Director model ID [${oldDirectorModel || 'tool default'}]: `)).trim() || oldDirectorModel;
       config.orchestrator = { implementer: orchestrator, ...(directorModel ? { model: directorModel } : {}) };
       if (!config.enabled.includes(orchestrator)) config.enabled.push(orchestrator);
-      config.authority = (await terminal.question('Creative decision authority [ask / director] (ask): ')).trim() || 'ask';
+      config.authority = (await terminal.question(`Creative decision authority [ask / director] (${existing?.authority || 'ask'}): `)).trim() || existing?.authority || 'ask';
+      config.workflowMode = (await terminal.question(`Workflow [original / focused] (${existing?.workflowMode || 'original'}): `)).trim() || existing?.workflowMode || 'original';
       validateConfig(config);
       show(config);
       const answer = (await terminal.question('Save these settings? [y/N]: ')).trim().toLowerCase();
       if (answer !== 'y') return show('Setup cancelled.');
     } finally { terminal.close(); }
   }
-  writeConfig(applyDials(config));
+  config = applyDials(config); writeConfig(config);
   show({ saved: configPath(), config });
 }
 function summary(state) {
-  return { name: state.name, stage: state.stage, plan: state.plan,
+  return { name: state.name, stage: state.stage, workflow: state.workflow?.mode, phase: state.workflow?.phase, plan: state.plan,
     tasks: state.tasks.map(t => ({ id: t.id, role: t.role, status: t.status, dependsOn: t.dependsOn, entities: t.entities, error: t.error })),
     pending: state.decisions.filter(d => d.status === 'pending'), pendingRevisions: state.pendingRevisions || [],
     reviews: Object.fromEntries(Object.entries(state.reviews).map(([id, r]) => [id, { verdict: r.verdict, summary: r.summary }])) };
@@ -127,6 +148,28 @@ async function main() {
     const report = await discover();
     return show(flags.provider ? report.discovered.find(d => d.key === flags.provider)?.models || { status: 'unavailable' } : report.discovered.map(d => ({ provider: d.key, ...d.models })));
   }
+  if (command === 'catalog') {
+    if (subcommand === 'refresh') return show(await refreshCatalog(argument || 'openrouter'));
+    if (subcommand === 'list' || !subcommand) {
+      const result = catalog({ source: argument, search: flags.search, band: flags.band, size: flags.size, provider: flags.provider });
+      const limit = flags.limit === undefined ? 50 : Number(flags.limit), offset = Number(flags.offset || 0);
+      required(Number.isSafeInteger(limit) && limit >= 1 && limit <= 500 && Number.isSafeInteger(offset) && offset >= 0, 'limit must be 1..500 and offset must be nonnegative.');
+      return show({ ...result, matched: result.models.length, offset, limit, models: result.models.slice(offset, offset + limit) });
+    }
+    if (subcommand === 'estimate') {
+      const result = catalog({ search: required(argument, 'Specify a model ID.') });
+      const model = result.models.find(m => m.id === argument);
+      required(model, 'Model is not in the cached catalog. Refresh it first.');
+      return show({ model: model.id, advertisedPricing: { input: model.input, output: model.output },
+        estimate: estimateTokens(model, Number(flags['input-tokens']), Number(flags['output-tokens'])) });
+    }
+    throw new Error('Unknown catalog command.');
+  }
+  if (command === 'plans') return show(plans(subcommand));
+  if (command === 'studio') {
+    const module = await import('./studio.mjs');
+    return module.studio();
+  }
   if (command === 'providers') {
     if (subcommand === 'list' || !subcommand) return show(IMPLEMENTERS.map(i => ({ id: i.key, binary: i.binary, supports: i.supports, verification: 'upstream-relay; local live status documented separately' })));
     if (subcommand === 'install') return show(await installProvider(required(argument, 'Specify provider name.')));
@@ -156,22 +199,31 @@ async function main() {
     config.skills[argument] = [...new Set([...(config.skills[argument] || []), path])];
     writeConfig(config); return show({ role: argument, attached: path });
   }
-  if (command === 'install-skill') return show(installSkill(flags.host, flags.target));
+  if (command === 'install-skill') return show(installSkill(flags.host, flags.target, flags.update));
   if (command === 'init') {
     const dir = resolve(required(subcommand, 'Pass a project directory.'));
     const brief = readFileSync(required(flags.brief, 'Pass --brief FILE'), 'utf8');
     required(brief.trim(), 'Brief cannot be empty.');
     return show(summary(createProject(dir, basename(dir), brief, loadConfig())));
   }
+  if (command === 'migrate') {
+    const dir = resolve(required(subcommand, 'Pass the legacy project directory.'));
+    const brief = readFileSync(required(flags.brief, 'Pass --brief FILE'), 'utf8');
+    return show(migrateLegacy(dir, brief, loadConfig()));
+  }
   if (command === 'status') return show(summary(loadProject(root)));
   if (command === 'decisions') return show(loadProject(root).decisions);
   if (command === 'plan') return projectAction(async state => { await makePlan(root, state, progress); return summary(state); });
   if (command === 'approve') return projectAction(state => {
-    if (subcommand === 'plan') { required(state.plan, 'No plan to approve.'); state.plan.approved = true; state.plan.approvedAt = now(); }
+    if (subcommand === 'plan') {
+      required(state.plan, 'No plan to approve.'); state.plan.approved = true; state.plan.approvedAt = now();
+      const amendment = state.plan.amendments?.at(-1); if (amendment) { amendment.approved = true; amendment.approvedAt = now(); }
+    }
     else {
       const decision = state.decisions.find(d => d.id === subcommand && d.status === 'pending');
       required(decision, 'No pending decision with that ID.');
       decision.value = required(flags.value, 'Pass --value TEXT'); decision.status = 'answered'; decision.answeredAt = now();
+      answerGate(state, decision, decision.value);
       if (decision.lockKey) state.locks[decision.lockKey] = decision.value;
       // A user answer can change a premise used by any existing deliverable.
       if (state.tasks.some(t => t.output)) invalidate(state, state.tasks.map(t => t.id), `User decision ${decision.id}: ${decision.value}`);
@@ -183,6 +235,27 @@ async function main() {
     await runProject(root, state, { retryFailed: flags['retry-failed'], onProgress: progress });
     if (['failed','review-failed','revision-limit','provider-blocked','interrupted'].includes(state.stage)) process.exitCode = 1;
     return summary(state);
+  });
+  if (command === 'extend') return projectAction(state => {
+    required(state.plan, 'Plan the project first.');
+    const requested = required(flags.deliverables, 'Pass --deliverables image-prompts,video-prompts,...').split(',').map(s => s.trim()).filter(Boolean);
+    const allowed = new Set(['image-prompts','video-prompts','sfx-prompts','vo-prompts','motion-prompts','music-prompts']);
+    required(requested.length && requested.every(id => allowed.has(id)), `Generation choices: ${[...allowed].join(', ')}`);
+    const bible = state.tasks.find(t => t.role === 'production-bible' && t.status === 'completed');
+    required(bible, 'Complete the production bible before extending into generation prompts.');
+    const added = [];
+    const bilingual = /both|arabic.*english|english.*arabic|عربي.*إنجليزي|انجليزي.*عربي/i.test(state.locks.language || '');
+    for (const roleId of requested) {
+      const variants = roleId === 'vo-prompts' && bilingual ? [['vo-prompts-ar', 'ar'], ['vo-prompts-en', 'en']] : [[roleId, 'neutral']];
+      for (const [id, language] of variants) if (!state.tasks.some(t => t.id === id)) {
+        state.tasks.push({ id, role: roleId, language, brief: `Build the complete ${roleId} package from locked production${language === 'neutral' ? '' : ` as an independent ${language} pass`}.`,
+          dependsOn: [bible.id], entities: ['*'], status: 'pending', attempts: [], revision: 1, output: null }); added.push(id);
+      }
+    }
+    required(added.length, 'All requested generation deliverables already exist.');
+    state.plan.amendments ||= [];
+    state.plan.amendments.push({ at: now(), added, approved: false }); state.plan.approved = false; state.stage = 'plan-approval';
+    return { added, instruction: 'Review the amended task list, then run tvc approve plan.' };
   });
   if (command === 'use-config') return projectAction(state => { state.config = loadConfig(); return { applied: true, note: 'Completed artifacts keep their recorded model provenance.' }; });
   if (command === 'change') return projectAction(state => {
@@ -204,20 +277,38 @@ async function main() {
     required(!state.tasks.length, 'Use a fresh project for a standalone crew pass.');
     const brief = readFileSync(required(flags.brief, 'Pass --brief approved-packet.md'), 'utf8');
     state.plan = { approved: false, summary: `${subcommand} crew pass`, createdAt: now() };
-    state.tasks = CREWS[subcommand].map(id => ({ id, role: id, brief, dependsOn: [], entities: ['*'],
+    state.tasks = CREWS[subcommand].map(id => ({ id, role: id, language: 'neutral', brief, dependsOn: [], entities: ['*'],
       status: 'pending', attempts: [], revision: 1, output: null }));
     state.stage = 'plan-approval'; return summary(state);
   });
   if (command === 'export') return projectAction(state => ({ file: exportProject(root, state) }));
+  if (command === 'generation' && subcommand === 'authorize') return projectAction(state => {
+    required(flags.yes, 'Review the quote, then repeat with --yes for explicit spend authorization.');
+    required(state.stage === 'complete', 'Generation authorization requires a completed handoff gate.');
+    const quote = readJSON(required(flags.file, 'Pass --file QUOTE.json'));
+    for (const key of ['id','modality','model','resolution','duration','currency']) required(typeof quote[key] === 'string' && quote[key].trim(), `Quote requires ${key}.`);
+    required(Number.isFinite(quote.estimatedCost) && quote.estimatedCost >= 0, 'Quote requires a nonnegative numeric estimatedCost.');
+    required(!state.generationApprovals?.some(a => a.id === quote.id), 'Generation quote ID already exists.');
+    state.generationApprovals ||= [];
+    state.generationApprovals.push({ ...quote, status: 'approved', productionSignature: productionSignature(state), approvedAt: now(),
+      disclaimer: 'Estimate only. Provider billing is authoritative; this command does not execute or purchase generation.' });
+    return { approved: quote.id, estimatedCost: quote.estimatedCost, currency: quote.currency };
+  });
   if (command === 'assets' && subcommand === 'add') return projectAction(state => {
     const asset = readJSON(required(flags.file, 'Pass --file asset.json'));
     for (const key of ['id','type','model','url','entity','row']) required(typeof asset[key] === 'string' && asset[key].trim(), `Asset requires ${key}.`);
     required(/^[a-zA-Z0-9_-]+$/.test(asset.id), 'Asset id must be letters, digits, underscore or hyphen.');
     required(!state.assets.some(a => a.id === asset.id), 'Asset already registered.');
     required(/^(https?:\/\/|\/|[a-zA-Z]:[\\/])/.test(asset.url), 'Asset URL must be HTTP(S) or an absolute local path.');
-    state.assets.push({ ...asset, recordedAt: now() });
+    const row = (state.masterRows || []).find(r => r.entity === asset.entity && r.row === asset.row);
+    required(row, 'Asset must reference an entity/row emitted by the approved production-bible masterRows ledger.');
+    const batch = required(asset.batch, 'Asset requires batch, linked to an approved generation authorization.');
+    required(state.generationApprovals?.some(a => a.id === batch && a.status === 'approved' && a.productionSignature === productionSignature(state)), 'Generation batch is not explicitly approved for the current production revision.');
+    state.assets.push({ ...asset, status: asset.status || 'generated', productionRevision: state.briefRevision, recordedAt: now() });
+    row.assets ||= []; row.assets.push(asset.id);
     const tables = join(root, 'master-tables'); mkdirSync(tables, { recursive: true });
     atomicJSON(join(tables, 'generated-assets.json'), state.assets);
+    atomicJSON(join(tables, 'production-rows.json'), state.masterRows);
     return { registered: asset.id, masterRow: { entity: asset.entity, row: asset.row } };
   });
   throw new Error(`Unknown command: ${command}. Run tvc help.`);

@@ -4,15 +4,16 @@ import { homedir, tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { SKILL_ROOT } from './roles.mjs';
 
-export function installSkill(host, target) {
+export function installSkill(host, target, update = false) {
   const roots = { codex: join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'skills'),
     claude: join(homedir(), '.claude/skills'), agents: join(homedir(), '.agents/skills') };
   if (!target && !roots[host]) throw new Error('Choose --host codex, claude, agents, or provide --target <skills-directory>.');
   const destination = join(resolve(target || roots[host]), 'cinematic-tvc-director');
-  if (existsSync(destination)) throw new Error(`Skill already exists at ${destination}. Install to a new --target to compare before replacing it.`);
+  const existed = existsSync(destination);
+  if (existed && !update) throw new Error(`Skill already exists at ${destination}. Pass --update after reviewing the new version, or install to a separate --target.`);
   mkdirSync(resolve(target || roots[host]), { recursive: true });
   cpSync(SKILL_ROOT, destination, { recursive: true });
-  return destination;
+  return { destination, updated: existed };
 }
 function run(command, args) {
   return new Promise((resolveResult, reject) => {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { IMPLEMENTERS } from '../vendor/delegate-skills/skills/delegate-setup/scripts/implementers.mjs';
+import { IMPLEMENTERS, MODEL_TOKEN } from '../vendor/delegate-skills/skills/delegate-setup/scripts/implementers.mjs';
 import { atomicJSON, readJSON } from './store.mjs';
 import { ROLES, role } from './roles.mjs';
 
@@ -17,7 +17,9 @@ export function validateBinding(binding, config) {
   for (const key of Object.keys(binding)) {
     if (!['implementer', 'model', 'effort', 'variant', 'provider'].includes(key)) throw new Error(`Unsupported binding field: ${key}`);
     if (key === 'implementer') continue;
-    if (typeof binding[key] !== 'string' || !safeToken.test(binding[key])) throw new Error(`Invalid ${key} token.`);
+    const pattern = key === 'model' ? binding.implementer === 'claude' ? MODEL_TOKEN.claude
+      : binding.implementer === 'cursor' ? MODEL_TOKEN.cursor : MODEL_TOKEN.shellSafe : safeToken;
+    if (typeof binding[key] !== 'string' || !pattern.test(binding[key])) throw new Error(`Invalid ${key} token.`);
     if (impl && !impl.supports.includes(key)) throw new Error(`${binding.implementer} does not expose ${key} through its relay.`);
   }
   if (binding.implementer === 'opencode' && !/^[^/]+\/.+/.test(binding.model || '')) throw new Error('OpenCode requires model in provider/model form.');
@@ -30,6 +32,8 @@ export function validateConfig(config) {
   if (!Number.isInteger(config.maxRounds) || config.maxRounds < 1 || config.maxRounds > 5) throw new Error('maxRounds must be 1..5');
   if (!Number.isInteger(config.timeoutSeconds) || config.timeoutSeconds < 5 || config.timeoutSeconds > 7200) throw new Error('timeoutSeconds must be 5..7200');
   if (!['ask', 'director'].includes(config.authority)) throw new Error('authority must be ask or director');
+  config.workflowMode ||= 'original';
+  if (!['original', 'focused'].includes(config.workflowMode)) throw new Error('workflowMode must be original or focused');
   for (const [key, custom] of Object.entries(config.customProviders || {})) {
     if (!/^[a-z][a-z0-9-]{0,40}$/.test(key) || IMPLEMENTERS.some(i => i.key === key)) throw new Error(`Invalid custom provider name: ${key}`);
     if (typeof custom.relay !== 'string' || !existsSync(custom.relay) || !custom.relay.endsWith('.mjs')) throw new Error(`Custom provider ${key} needs an existing absolute .mjs relay.`);
@@ -52,7 +56,7 @@ export function validateConfig(config) {
 export function defaultConfig(implementer = 'codex', model) {
   const binding = { implementer, ...(model ? { model } : {}) };
   return { schema: 'tvc-config.v1', enabled: [implementer], default: binding, orchestrator: { ...binding },
-    roles: {}, skills: {}, customProviders: {}, concurrency: 3, maxRounds: 2, timeoutSeconds: 1200, authority: 'ask' };
+    roles: {}, skills: {}, customProviders: {}, concurrency: 3, maxRounds: 2, timeoutSeconds: 1200, authority: 'ask', workflowMode: 'original' };
 }
 export function loadConfig() {
   if (!existsSync(configPath())) throw new Error('No configuration. Run tvc setup first.');

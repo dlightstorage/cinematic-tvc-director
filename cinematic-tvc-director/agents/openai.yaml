@@ -1,0 +1,7 @@
+interface:
+  display_name: "Cinematic TVC Director"
+  short_description: "Build and audit cinematic advertising production"
+  brand_color: "#E6B84A"
+  default_prompt: "Use $cinematic-tvc-director to turn my advertising brief into a gated production package."
+policy:
+  allow_implicit_invocation: true

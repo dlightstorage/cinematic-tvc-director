@@ -10,6 +10,7 @@ const bible = n => `bibles/${bibles.find(f => f.startsWith(`${String(n).padStart
 const definitions = [
   ['director', 'Director / Orchestrator', 11, 'director-protocol.md'],
   ['creative', 'Creative Brief and Concept', 18, 'templates-documents.md'],
+  ['research', 'Cultural and Market Research', 18, 'research-protocol.md'],
   ['dop', 'Director of Photography', 1, 'gates-crew-departments.md'],
   ['colorist', 'Colorist', 2, 'gates-crew-departments.md'],
   ['editor', 'Editor', 3, 'gates-crew-departments.md'],

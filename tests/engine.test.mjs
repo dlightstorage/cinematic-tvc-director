@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,11 +8,15 @@ import { defaultConfig, validateConfig, bindingFor } from '../cinematic-tvc-dire
 import { createProject, saveProject, loadProject, withProjectLock, inside } from '../cinematic-tvc-director/scripts/lib/store.mjs';
 import { makePlan, runProject, validatePlan, validateReview, invalidate, changeEntity, exportProject, debate } from '../cinematic-tvc-director/scripts/lib/engine.mjs';
 import { relayArgs, parseObject, delegateFailure } from '../cinematic-tvc-director/scripts/lib/adapter.mjs';
+import { ROUNDS, departmentRegistry, requireStandardTests } from '../cinematic-tvc-director/scripts/lib/workflow.mjs';
+import { normalizeCatalog, estimateTokens } from '../cinematic-tvc-director/scripts/lib/catalog.mjs';
+import { migrateLegacy } from '../cinematic-tvc-director/scripts/lib/migrate.mjs';
 const relay = fileURLToPath(new URL('./fixtures/fake-relay.mjs', import.meta.url));
 function project(t, brief = 'A fictional commercial') {
   const root = mkdtempSync(join(tmpdir(), 'tvc-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = defaultConfig('fixture');
+  config.workflowMode = 'focused';
   config.customProviders = { fixture: { relay } };
   config.timeoutSeconds = 5;
   validateConfig(config);
@@ -45,8 +49,10 @@ test('real child-process DAG run, two independent reviews and final export', asy
 test('targeted product change preserves independent output and invalidates reviews', async t => {
   const { root, state } = await planned(t);
   await runProject(root, state);
+  state.assets.push({ id: 'old-product-still', entity: 'product', status: 'approved' });
   const before = state.tasks.find(t => t.id === 'cut').runId;
   assert.deepEqual(changeEntity(state, 'product', 'new bottle', 'new packaging'), ['picture']);
+  assert.equal(state.assets[0].status, 'superseded');
   assert.throws(() => exportProject(root, state), /Final export/);
   await runProject(root, state);
   assert.equal(state.tasks.find(t => t.id === 'cut').runId, before);
@@ -163,4 +169,57 @@ test('provider usage errors retain the real reason from relay events', async t =
   const error = delegateFailure(root, run, 1);
   assert.equal(error.code, 'provider-limit');
   assert.match(error.message, /usage limit/);
+});
+test('original workflow enforces source decisions, trace gates, master rows and handoff evidence', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'tvc-original-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = defaultConfig('fixture');
+  config.customProviders = { fixture: { relay } }; config.timeoutSeconds = 5;
+  const state = createProject(root, 'Original', 'ORIGINAL English commercial', validateConfig(config));
+  for (const round of ROUNDS) {
+    state.workflow.rounds[round.id] = {};
+    for (const key of round.keys) { state.workflow.rounds[round.id][key] = { status: 'locked', value: 'approved' }; state.locks[key] = 'approved'; }
+  }
+  for (const decision of departmentRegistry()) state.locks[decision.id] = 'approved';
+  await makePlan(root, state); state.plan.approved = true;
+  await runProject(root, state);
+  assert.equal(state.stage, 'complete', JSON.stringify(state.tasks.filter(task => task.status !== 'completed').map(task => ({ id: task.id, error: task.error }))));
+  assert.equal(departmentRegistry().length, 155);
+  assert.equal(state.masterRows[0].row, 'shot-001');
+  assert.ok(state.workflow.reports['trace-before-consolidate-continuity']);
+  assert.ok(state.workflow.reports['trace-final']);
+  assert.ok(existsSync(join(root, 'audits', 'handoff-continuity.md')));
+  assert.ok(existsSync(join(root, 'master-tables', 'production-rows.json')));
+});
+test('standard tests and model catalog metadata are structurally validated', () => {
+  assert.throws(() => requireStandardTests({ verdict: 'approved', checkedClean: [], notChecked: [], standardTests: {}, historyStripped: true }, true), /standard test/);
+  const models = normalizeCatalog('openrouter', { data: [{ id: 'qwen/example-72b', name: 'Qwen Example 72B', pricing: { prompt: '0.000001', completion: '0.000002' }, supported_parameters: ['tools'], architecture: {} }] });
+  assert.equal(models[0].sizeClass, 'large');
+  assert.equal(models[0].priceBand, 'standard');
+  assert.equal(estimateTokens(models[0], 1_000_000, 1_000_000).usd, 3);
+});
+test('legacy Markdown migration preserves source and imports only explicit locks', t => {
+  const root = mkdtempSync(join(tmpdir(), 'tvc-migrate-test-')); t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '_state'));
+  writeFileSync(join(root, '_state', 'project-state.md'), `# Project State: Legacy
+**Current stage:** 2 DRAFT
+## Scope (locked at Stage 1)
+| Field | Value | Locked |
+|---|---|---|
+| Runtime | 30s | yes |
+| Language(s) | both as two independent passes | yes |
+## Locked decisions
+| ID | Decision | Locked value | Locked at | Departments depending on it |
+|---|---|---|---|---|
+| palette | Brand palette | red only | 2026-01-01 | wardrobe |
+## Open decisions
+| ID | Decision | Blocked by | Notes |
+|---|---|---|---|
+| cast | Choose cast | none | client decision |
+`);
+  const result = migrateLegacy(root, 'Original brief', defaultConfig('codex'));
+  const state = loadProject(root);
+  assert.equal(state.locks.runtime, '30s'); assert.equal(state.locks.palette, 'red only');
+  assert.equal(state.decisions.find(d => d.legacyId === 'cast').status, 'pending');
+  assert.ok(existsSync(result.backup));
 });

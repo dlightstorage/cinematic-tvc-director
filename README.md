@@ -9,6 +9,12 @@ relays from the [reference video](https://www.youtube.com/watch?v=YZbu0fndK40),
 with the supplied cinematic production library preserved. Source revision and
 license attribution are in [THIRD-PARTY.md](THIRD-PARTY.md).
 
+Version 0.2 runs the supplied original six-stage workflow by default. Its intake
+rounds, source decision ledger, trace gate, consolidation barrier, handoff gate,
+negative-brief review and generation approvals are enforced in state instead of
+being prompt-only guidance. Use `--workflow focused` only for deliberately narrow
+single-stage work.
+
 ## Install
 
 Requirements: Node.js 22+, Git, and at least one installed/authenticated agent CLI.
@@ -25,6 +31,7 @@ On Windows:
 .\install.ps1
 tvc setup
 tvc doctor
+tvc studio
 ```
 
 On macOS/Linux use `sh install.sh`. Or run `npm install --global .` directly.
@@ -61,9 +68,19 @@ tvc configure --concurrency 3 --authority ask
 ```
 
 Examples are configurable choices, not prescribed model assignments. `tvc roles`
-shows all 23 roles; `tvc providers list` lists the 17 bundled upstream relays.
+shows all 24 roles; `tvc providers list` lists the 17 bundled upstream relays.
 Tool/model availability depends on the installed CLI and account. Invalid dials
 are rejected instead of silently ignored.
+
+`tvc catalog refresh openrouter` and `tvc catalog refresh modelsdev` build a live,
+cached browsing catalog. Filter it by family/name, advertised API-price band or
+parameter size. Catalog presence never claims that a selected CLI, subscription
+or account can run the model. Use `tvc models --provider NAME` for the model IDs
+reported by an installed CLI, then bind the exact ID with `tvc assign`.
+
+`tvc plans` separates subscription access from API billing and links to current
+vendor pages. It is reference information, not a checkout surface: this package
+does not buy plans, enable overages, redeem credits or store API keys.
 
 `tvc providers install codex`, `claude` or `agy` invokes that tool's official
 installer. Authentication remains in the provider CLI. Other provider tools use
@@ -91,6 +108,13 @@ reviews run independently before the package can be exported.
 `authority director` lets the director resolve choices within the supplied scope.
 Missing user facts still remain questions. Review loops are bounded; a revision
 limit pauses work with actionable findings.
+
+In the default original mode the runtime accounts for all 155 source department
+decisions. GATE choices remain user-owned; DERIVED decisions need written
+derivation; CONDITIONAL decisions need either a result or an explicit
+not-applicable reason. A dedicated research role persists culture, market,
+location, casting and dialect findings when needed. English and Arabic copy/voice
+work is enforced as separate passes when both languages are locked.
 
 ## Continue and Revise
 
@@ -143,10 +167,16 @@ Project run folders contain briefs and production content; keep them out of the
 software repository. `TVC_HOME` selects a separate global configuration directory.
 
 This release creates production documents and media prompts, and registers assets
-generated elsewhere. Paid media execution, presentation rendering and automatic
-legacy Markdown-state migration are not implemented. Worker directories are
+generated elsewhere. Paid media execution and native PPTX rendering are not
+implemented. Use `tvc migrate` for original Markdown-only state. Worker directories are
 coordination isolation, not an OS sandbox; each provider retains its own permission
 mechanisms. The runtime does not pass blanket bypass flags.
+
+Approved export now writes `production-package.md`, a print-ready
+`client-presentation.html`, `ai-generation-package.md`, `decision-log.json` and
+`asset-manifest.json`. Asset registration requires a current explicit generation
+quote approval and a real entity/row from the structured production-bible ledger;
+changed assets are retained as superseded rather than silently deleted.
 
 ## Verify
 
