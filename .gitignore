@@ -1,0 +1,11 @@
+.upstream/
+.tvc/
+projects/
+node_modules/
+*.tgz
+dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+

@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+const cli = fileURLToPath(new URL('../cinematic-tvc-director/scripts/tvc.mjs', import.meta.url));
+const fixture = fileURLToPath(new URL('./fixtures/fake-relay.mjs', import.meta.url));
+test('terminal setup, custom provider, model binding, install and project snapshots', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'tvc-cli-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const env = { ...process.env, TVC_HOME: join(dir, 'settings') };
+  const call = (...args) => {
+    const r = spawnSync(process.execPath, [cli, ...args, '--json'], { env, cwd: dir, encoding: 'utf8', windowsHide: true });
+    assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
+  };
+  call('setup','--provider','codex');
+  call('providers','add','fixture','--relay',fixture);
+  call('assign','director','--provider','fixture');
+  const config = JSON.parse(readFileSync(join(env.TVC_HOME,'config.json')));
+  assert.equal(config.orchestrator.implementer, 'fixture');
+  const brief = join(dir, 'brief.md'); writeFileSync(brief, 'A test campaign');
+  const project = join(dir, 'ad'); call('init',project,'--brief',brief);
+  call('assign','dop','--provider','fixture','--model','custom-model');
+  const before = JSON.parse(readFileSync(join(project,'.tvc/project.json')));
+  assert.equal(before.config.roles.dop, undefined, 'project config is snapshotted');
+  call('use-config','--project',project);
+  const after = JSON.parse(readFileSync(join(project,'.tvc/project.json')));
+  assert.equal(after.config.roles.dop.model, 'custom-model');
+  const installed = call('install-skill','--target',join(dir,'skills'));
+  assert.ok(existsSync(join(installed,'scripts/tvc.mjs')));
+  const duplicate = spawnSync(process.execPath,[cli,'install-skill','--target',join(dir,'skills')],{env,cwd:dir,encoding:'utf8',windowsHide:true});
+  assert.equal(duplicate.status,1);
+  assert.match(duplicate.stderr,/already exists/);
+});

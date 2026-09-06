@@ -1,0 +1,26 @@
+{
+  "skill_name": "cinematic-tvc-director",
+  "evals": [
+    {
+      "id": 0,
+      "name": "new-brief-to-concept",
+      "prompt": "I have a brief for a 30 second TVC for a new Egyptian premium olive oil brand launching in Cairo. Target is home cooks aged 30-50 who currently buy imported brands and think local means lower quality. Brand wants to own 'Egyptian soil, world standard'. Non-negotiables: must feature real food being cooked, must not look like a stock cooking video, bilingual Arabic and English. Start developing this into a concept for me.",
+      "expected_output": "Should read the state file convention, mine the brief stage by stage, and stop at a scope gate using AskUserQuestion before drafting. Should NOT silently pick a runtime/ratio/language approach or jump straight to writing a treatment.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "midproject-camera-swap-reentry",
+      "prompt": "On the olive oil film we already locked everything and briefed all the departments. The shot list is done. Client just came back and wants us to switch from the Alexa Mini LF to Alexa 35 Super 35 for budget reasons. What does this actually change and what do you need to redo?",
+      "expected_output": "Should identify this as a sensor-format change requiring re-derivation, not a relabel. Should re-enter at Stage 2 then mandatory Stage 3, recompute focal lengths for the new sensor with real crop-factor math, flag the shallow-DOF technique weakening and name the compensation, and NOT restart from the brief.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "generation-prompt-package",
+      "prompt": "The olive oil TVC shot list is locked and audited. Shot 4 is a 4 second close-up of a woman's hands pouring oil over a hot pan, warm kitchen light, and it needs to cut against a locked Arabic VO line we already recorded. Write me the generation setup for this shot.",
+      "expected_output": "Should require Stage 6 pass as precondition, generate a still first as start_image, correctly select a model that accepts BOTH start_image and audio_references (wan2_7, seedance_2_0, or seedance_2_0_mini only), specify what must stay still, present cost for approval before spending, and specify the asset write-back target row.",
+      "files": []
+    }
+  ]
+}
