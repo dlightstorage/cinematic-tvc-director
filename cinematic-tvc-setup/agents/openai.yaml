@@ -1,0 +1,7 @@
+interface:
+  display_name: "Cinematic TVC Setup"
+  short_description: "Configure the advertising model fleet"
+  brand_color: "#E6B84A"
+  default_prompt: "Use $cinematic-tvc-setup to discover my installed agent CLIs and build an advertising crew for my approval."
+policy:
+  allow_implicit_invocation: true

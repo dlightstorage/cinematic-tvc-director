@@ -9,7 +9,7 @@ relays from the [reference video](https://www.youtube.com/watch?v=YZbu0fndK40),
 with the supplied cinematic production library preserved. Source revision and
 license attribution are in [THIRD-PARTY.md](THIRD-PARTY.md).
 
-Version 0.2 runs the supplied original six-stage workflow by default. Its intake
+Version 0.3 runs the supplied original six-stage workflow by default. Its intake
 rounds, source decision ledger, trace gate, consolidation barrier, handoff gate,
 negative-brief review and generation approvals are enforced in state instead of
 being prompt-only guidance. Use `--workflow focused` only for deliberately narrow
@@ -18,25 +18,37 @@ single-stage work.
 ## Install
 
 Requirements: Node.js 22+, Git, and at least one installed/authenticated agent CLI.
-Clone the repository (GitHub access is required while it is private):
-
-```sh
-git clone https://github.com/dlightstorage/cinematic-tvc-director.git
-cd cinematic-tvc-director
-```
-
-On Windows:
+The primary installation matches the Delegate Skills flow shown in the reference
+video. GitHub access is required while this repository is private:
 
 ```powershell
-.\install.ps1
+npx skills add dlightstorage/cinematic-tvc-director
+```
+
+Use Space to select both `cinematic-tvc-director` and `cinematic-tvc-setup`, then
+choose the agent hosts, Global or Project scope, Symlink or Copy, and confirm.
+Symlink is the recommended Skills CLI default. After installation, open any
+selected orchestrating agent and ask:
+
+```text
+Use $cinematic-tvc-setup to discover my installed model CLIs and build my advertising production fleet.
+```
+
+The setup wizard follows `discover -> quick/interview/usage -> propose -> modify
+or approve -> scope -> exact JSON -> write`. It displays linked model profiles,
+the director first, and all 24 advertising roles with provider and assignment
+basis before saving anything.
+
+The optional global `tvc` command can be installed straight from GitHub without
+cloning after `gh auth setup-git`:
+
+```powershell
+npm.cmd install --global "git+https://github.com/dlightstorage/cinematic-tvc-director.git"
 tvc setup
-tvc doctor
 tvc studio
 ```
 
-On macOS/Linux use `sh install.sh`. Or run `npm install --global .` directly.
-No npm registry release is claimed; installation currently uses the repository
-or the generated `.tgz` archive. To try it without global installation:
+No npm registry release is claimed. To try the runtime from a source checkout:
 
 ```sh
 node cinematic-tvc-director/scripts/tvc.mjs help
@@ -55,8 +67,11 @@ comparison installation. Existing cinematic source files are not discarded.
 
 ## Choose Your Fleet
 
-Interactive `tvc setup` selects enabled tools, the default crew binding, and the
-director independently. For scripted setup:
+Interactive `tvc setup` mirrors the reference fleet experience: it discovers
+installed CLIs, offers Quick defaults, Interview, Usage scan, or current-config
+review, and opens a full approval loop. The user can modify one role, a department
+group, the top-level director, or production controls before choosing Global or
+Project scope. For scripted setup:
 
 ```sh
 tvc setup --provider codex --enable codex,claude,agy

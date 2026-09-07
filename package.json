@@ -1,12 +1,12 @@
 {
   "name": "cinematic-tvc-director",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Terminal commercial-production crews powered by selectable agent CLIs",
   "license": "UNLICENSED",
   "type": "module",
   "bin": { "tvc": "cinematic-tvc-director/scripts/tvc.mjs" },
   "engines": { "node": ">=22" },
-  "files": ["cinematic-tvc-director", "README.md", "VERIFICATION.md", "THIRD-PARTY.md", "examples", "install.ps1", "install.sh"],
+  "files": ["cinematic-tvc-director", "cinematic-tvc-setup", "skills.sh.json", "README.md", "VERIFICATION.md", "THIRD-PARTY.md", "examples", "install.ps1", "install.sh"],
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "start": "node cinematic-tvc-director/scripts/tvc.mjs",

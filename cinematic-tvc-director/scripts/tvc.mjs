@@ -2,9 +2,20 @@
 import { parseArgs } from 'node:util';
 import { readFileSync, existsSync, cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
-import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
-import { defaultConfig, validateConfig, writeConfig, loadConfig, configPath, listRoles, IMPLEMENTERS } from './lib/config.mjs';
+import {
+  defaultConfig,
+  validateConfig,
+  writeConfig,
+  writeEffectiveConfig,
+  loadConfig,
+  configPath,
+  configLocation,
+  globalConfigPath,
+  projectConfigPath,
+  listRoles,
+  IMPLEMENTERS,
+} from './lib/config.mjs';
 import { ROLES, CREWS, role } from './lib/roles.mjs';
 import { discover, invoke, parseObject } from './lib/adapter.mjs';
 import { readJSON, atomicJSON, createProject, loadProject, saveProject, withProjectLock, now, inside } from './lib/store.mjs';
@@ -14,10 +25,12 @@ import { answerGate, productionSignature } from './lib/workflow.mjs';
 import { refreshCatalog, catalog, estimateTokens } from './lib/catalog.mjs';
 import { plans } from './lib/plans.mjs';
 import { migrateLegacy } from './lib/migrate.mjs';
+import { interactiveSetup } from './setup-wizard.mjs';
 
-const help = `Cinematic TVC Director 0.2.0
+const help = `Cinematic TVC Director 0.3.0
 
-  tvc setup [--provider codex] [--model MODEL] [--enable codex,claude,agy]
+  tvc setup                         Visual discover/interview/approve wizard
+  tvc setup --provider codex [--model MODEL] [--enable LIST] [--scope global|project]
   tvc doctor                         Discover installed CLIs, auth and models
   tvc providers list                 Bundled relay catalog
   tvc providers install NAME         Install codex, claude or agy via vendor installer
@@ -57,7 +70,7 @@ Project commands use the current directory or --project PATH.
 --json produces machine-readable output. Plans and model runs are persisted locally.
 `;
 
-const strings = ['provider','model','enable','effort','variant','project','brief','value','entity','reason','instruction','roles','host','target','relay','file','authority','concurrency','max-rounds','timeout','workflow','search','band','size','input-tokens','output-tokens','deliverables','limit','offset'];
+const strings = ['provider','model','enable','effort','variant','project','brief','value','entity','reason','instruction','roles','host','target','relay','file','authority','concurrency','max-rounds','timeout','workflow','search','band','size','input-tokens','output-tokens','deliverables','limit','offset','scope'];
 const options = Object.fromEntries(strings.map(key => [key, { type: 'string' }]));
 for (const key of ['help','json','retry-failed','yes','update']) options[key] = { type: 'boolean' };
 const { values: flags, positionals } = parseArgs({ options, allowPositionals: true });
@@ -78,7 +91,11 @@ function applyDials(config) {
   return config;
 }
 async function setup() {
-  const existing = existsSync(configPath()) ? loadConfig() : null;
+  const scope = flags.scope || configLocation(root).source;
+  required(['global', 'project'].includes(scope), 'scope must be global or project.');
+  const scopedPath = scope === 'project' ? projectConfigPath(root) : globalConfigPath();
+  const existing = existsSync(scopedPath) ? (scope === 'project' ? loadConfig(root) : loadConfig())
+    : existsSync(globalConfigPath()) ? loadConfig() : null;
   let config;
   if (flags.provider) {
     config = existing ? structuredClone(existing) : defaultConfig(flags.provider, flags.model);
@@ -86,35 +103,11 @@ async function setup() {
     config.enabled = [...new Set([...(flags.enable ? flags.enable.split(',').map(s => s.trim()) : config.enabled), flags.provider])];
   } else {
     required(stdin.isTTY, 'For non-interactive setup pass --provider NAME and optional --model.');
-    const report = await discover();
-    show({ installed: report.discovered.map(d => ({ name: d.key, authenticated: d.authenticated, models: d.models })) });
-    const terminal = createInterface({ input: stdin, output: stdout });
-    try {
-      const previousEnabled = existing?.enabled.join(',') || 'codex';
-      const enabled = ((await terminal.question(`Enable tools (comma-separated) [${previousEnabled}]: `)).trim() || previousEnabled).split(',').map(s => s.trim()).filter(Boolean);
-      required(enabled.length, 'Select at least one tool.');
-      const oldProvider = existing?.default.implementer || enabled[0];
-      const provider = (await terminal.question(`Default crew tool [${oldProvider}]: `)).trim() || oldProvider;
-      const oldModel = existing?.default.model || '';
-      const model = (await terminal.question(`Default model ID [${oldModel || 'tool default'}]: `)).trim() || oldModel;
-      config = existing ? structuredClone(existing) : defaultConfig(provider, model); config.enabled = enabled;
-      config.default = { implementer: provider, ...(model ? { model } : {}) };
-      const oldDirector = existing?.orchestrator.implementer || provider;
-      const orchestrator = (await terminal.question(`Director tool [${oldDirector}]: `)).trim() || oldDirector;
-      const oldDirectorModel = existing?.orchestrator.model || '';
-      const directorModel = (await terminal.question(`Director model ID [${oldDirectorModel || 'tool default'}]: `)).trim() || oldDirectorModel;
-      config.orchestrator = { implementer: orchestrator, ...(directorModel ? { model: directorModel } : {}) };
-      if (!config.enabled.includes(orchestrator)) config.enabled.push(orchestrator);
-      config.authority = (await terminal.question(`Creative decision authority [ask / director] (${existing?.authority || 'ask'}): `)).trim() || existing?.authority || 'ask';
-      config.workflowMode = (await terminal.question(`Workflow [original / focused] (${existing?.workflowMode || 'original'}): `)).trim() || existing?.workflowMode || 'original';
-      validateConfig(config);
-      show(config);
-      const answer = (await terminal.question('Save these settings? [y/N]: ')).trim().toLowerCase();
-      if (answer !== 'y') return show('Setup cancelled.');
-    } finally { terminal.close(); }
+    return interactiveSetup({ cwd: root });
   }
-  config = applyDials(config); writeConfig(config);
-  show({ saved: configPath(), config });
+  config = applyDials(config);
+  const saved = writeConfig(config, { scope, cwd: root });
+  show({ saved, scope, config });
 }
 function summary(state) {
   return { name: state.name, stage: state.stage, workflow: state.workflow?.mode, phase: state.workflow?.phase, plan: state.plan,
@@ -136,8 +129,8 @@ async function main() {
   if (command === 'setup') return setup();
   if (command === 'doctor') {
     const report = await discover();
-    if (existsSync(configPath())) {
-      const config = loadConfig();
+    if (existsSync(configPath(root))) {
+      const config = loadConfig(root);
       const unavailable = config.enabled.filter(id => !config.customProviders[id] && !report.discovered.some(d => d.key === id && d.authenticated !== false));
       report.enabledUnavailable = unavailable;
       if (unavailable.length) process.exitCode = 1;
@@ -174,42 +167,42 @@ async function main() {
     if (subcommand === 'list' || !subcommand) return show(IMPLEMENTERS.map(i => ({ id: i.key, binary: i.binary, supports: i.supports, verification: 'upstream-relay; local live status documented separately' })));
     if (subcommand === 'install') return show(await installProvider(required(argument, 'Specify provider name.')));
     if (subcommand === 'add') {
-      const config = loadConfig();
+      const config = loadConfig(root);
       required(argument, 'Specify custom provider name.');
       config.customProviders[argument] = { relay: resolve(required(flags.relay, 'Pass --relay /path/provider.mjs')) };
       config.enabled = [...new Set([...config.enabled, argument])];
-      writeConfig(config); return show({ added: argument });
+      writeEffectiveConfig(config, root); return show({ added: argument });
     }
     throw new Error('Unknown providers command.');
   }
-  if (command === 'roles') return show(existsSync(configPath()) ? listRoles(loadConfig()) : Object.values(ROLES));
+  if (command === 'roles') return show(existsSync(configPath(root)) ? listRoles(loadConfig(root)) : Object.values(ROLES));
   if (command === 'assign') {
     role(subcommand);
-    const config = loadConfig();
+    const config = loadConfig(root);
     const binding = { implementer: required(flags.provider, 'Pass --provider NAME'),
       ...Object.fromEntries(['model','effort','variant'].filter(k => flags[k]).map(k => [k, flags[k]])) };
     config.enabled = [...new Set([...config.enabled, binding.implementer])];
     if (subcommand === 'director') config.orchestrator = binding; else config.roles[subcommand] = binding;
-    writeConfig(config); return show({ role: subcommand, binding, projectNote: 'Existing projects retain their snapshot; apply with tvc use-config.' });
+    writeEffectiveConfig(config, root); return show({ role: subcommand, binding, projectNote: 'Existing projects retain their snapshot; apply with tvc use-config.' });
   }
-  if (command === 'configure') { const config = applyDials(loadConfig()); writeConfig(config); return show(config); }
+  if (command === 'configure') { const config = applyDials(loadConfig(root)); writeEffectiveConfig(config, root); return show(config); }
   if (command === 'skills' && subcommand === 'attach') {
-    const config = loadConfig(); role(argument);
+    const config = loadConfig(root); role(argument);
     const path = resolve(required(positionals[3], 'Pass a skill folder path.'));
     config.skills[argument] = [...new Set([...(config.skills[argument] || []), path])];
-    writeConfig(config); return show({ role: argument, attached: path });
+    writeEffectiveConfig(config, root); return show({ role: argument, attached: path });
   }
   if (command === 'install-skill') return show(installSkill(flags.host, flags.target, flags.update));
   if (command === 'init') {
     const dir = resolve(required(subcommand, 'Pass a project directory.'));
     const brief = readFileSync(required(flags.brief, 'Pass --brief FILE'), 'utf8');
     required(brief.trim(), 'Brief cannot be empty.');
-    return show(summary(createProject(dir, basename(dir), brief, loadConfig())));
+    return show(summary(createProject(dir, basename(dir), brief, loadConfig(dir))));
   }
   if (command === 'migrate') {
     const dir = resolve(required(subcommand, 'Pass the legacy project directory.'));
     const brief = readFileSync(required(flags.brief, 'Pass --brief FILE'), 'utf8');
-    return show(migrateLegacy(dir, brief, loadConfig()));
+    return show(migrateLegacy(dir, brief, loadConfig(dir)));
   }
   if (command === 'status') return show(summary(loadProject(root)));
   if (command === 'decisions') return show(loadProject(root).decisions);
@@ -257,7 +250,7 @@ async function main() {
     state.plan.amendments.push({ at: now(), added, approved: false }); state.plan.approved = false; state.stage = 'plan-approval';
     return { added, instruction: 'Review the amended task list, then run tvc approve plan.' };
   });
-  if (command === 'use-config') return projectAction(state => { state.config = loadConfig(); return { applied: true, note: 'Completed artifacts keep their recorded model provenance.' }; });
+  if (command === 'use-config') return projectAction(state => { state.config = loadConfig(root); return { applied: true, note: 'Completed artifacts keep their recorded model provenance.' }; });
   if (command === 'change') return projectAction(state => {
     const affected = changeEntity(state, required(flags.entity, 'Pass --entity ID'), required(flags.value, 'Pass --value TEXT'), required(flags.reason, 'Pass --reason TEXT'));
     return { affected, stage: state.stage };

@@ -7,7 +7,13 @@ import { ROLES, role } from './roles.mjs';
 
 export { IMPLEMENTERS };
 export const configHome = () => resolve(process.env.TVC_HOME || join(homedir(), '.config/cinematic-tvc-director'));
-export const configPath = () => join(configHome(), 'config.json');
+export const globalConfigPath = () => join(configHome(), 'config.json');
+export const projectConfigPath = cwd => join(resolve(cwd), '.tvc', 'config.json');
+export function configLocation(cwd) {
+  if (cwd && existsSync(projectConfigPath(cwd))) return { source: 'project', path: projectConfigPath(cwd) };
+  return { source: 'global', path: globalConfigPath() };
+}
+export function configPath(cwd) { return configLocation(cwd).path; }
 const safeToken = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 export function validateBinding(binding, config) {
   if (!binding || typeof binding !== 'object' || Array.isArray(binding)) throw new Error('Invalid model binding.');
@@ -58,11 +64,21 @@ export function defaultConfig(implementer = 'codex', model) {
   return { schema: 'tvc-config.v1', enabled: [implementer], default: binding, orchestrator: { ...binding },
     roles: {}, skills: {}, customProviders: {}, concurrency: 3, maxRounds: 2, timeoutSeconds: 1200, authority: 'ask', workflowMode: 'original' };
 }
-export function loadConfig() {
-  if (!existsSync(configPath())) throw new Error('No configuration. Run tvc setup first.');
-  return validateConfig(readJSON(configPath()));
+export function loadConfig(cwd) {
+  const location = configLocation(cwd);
+  if (!existsSync(location.path)) throw new Error('No configuration. Run tvc setup first.');
+  return validateConfig(readJSON(location.path));
 }
-export function writeConfig(config) { atomicJSON(configPath(), validateConfig(config)); }
+export function writeConfig(config, { scope = 'global', cwd = process.cwd() } = {}) {
+  if (!['global', 'project'].includes(scope)) throw new Error('scope must be global or project');
+  const path = scope === 'project' ? projectConfigPath(cwd) : globalConfigPath();
+  atomicJSON(path, validateConfig(config));
+  return path;
+}
+export function writeEffectiveConfig(config, cwd) {
+  const location = configLocation(cwd);
+  return writeConfig(config, { scope: location.source, cwd });
+}
 export function bindingFor(config, id) {
   role(id);
   return validateBinding(id === 'director' ? config.orchestrator : config.roles[id] || config.default, config);

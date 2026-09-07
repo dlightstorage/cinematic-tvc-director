@@ -1,7 +1,7 @@
 # Verification
 
 Environment: native Windows PowerShell, Node.js 24.14.1, Codex CLI 0.153.4.
-Date: 2026-09-06.
+Date: 2026-09-07.
 
 ## Automated behavior
 
@@ -11,10 +11,12 @@ independent reviewers, stale-export prevention, selective change propagation,
 bounded revision loops, explicit failure retry, invalid JSON/output rejection,
 configuration validation, project locking, restart recovery, debates, selected
 director authority, custom-provider registration and host-skill installation.
-Version 0.2 adds an end-to-end original-workflow fixture covering all ten blind
+Version 0.2 added an end-to-end original-workflow fixture covering all ten blind
 departments, all 155 parsed source decisions, trace-before-consolidation, final
 trace, structured master rows, standard-test evidence, handoff review and legacy
-state migration. The complete suite has 16 tests.
+state migration. The complete suite has 18 tests. Version 0.3 adds the Skills CLI
+package manifest, the companion setup skill, project-scoped crew configuration
+and a self-contained TTY fleet wizard with approval-before-write.
 
 `npm run check` parses all bundled executable modules and verifies the 24 role
 reference paths. The skill-creator `quick_validate.py` validator accepts the main
@@ -40,10 +42,11 @@ requires `resume --retry-failed` after access is restored or bindings are change
 That error-classification addition and the latest workspace/lock handling were
 verified locally with fixtures; no further live model calls were available.
 
-Claude Code, Antigravity and the other bundled CLIs are not installed in this
-environment. Their relays are included from the pinned upstream source; no local
-authenticated support claim is made for them. The upstream README contains its
-own platform/version verification record.
+Claude Code 2.1.263 and OpenCode 1.18.29 are installed locally. The latest setup
+wizard discovery reported Claude as ready and OpenCode as requiring login. Their
+relays are included from the pinned upstream source; no completed live production
+claim is made for either provider. The upstream README contains its own
+platform/version verification record.
 
 ## Publication and limits
 
@@ -54,7 +57,7 @@ authentication, independently of the ChatGPT connector. No npm registry
 publication was performed. Cross-platform CI results are available in the
 repository's Actions tab; local test results alone do not establish CI success.
 
-Paid media execution and native PPTX rendering remain outside the 0.2.0 terminal
+Paid media execution and native PPTX rendering remain outside the 0.3.0 terminal
 runtime. The approved export includes a print-ready HTML client presentation.
 Original Markdown-only project state can be imported with `tvc migrate`; legacy
 assets stay unapproved until their row and spend authorization are verified.

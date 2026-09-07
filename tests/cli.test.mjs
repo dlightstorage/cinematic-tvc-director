@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { assignBalancedGroups, renderCrewTable } from '../cinematic-tvc-director/scripts/setup-wizard.mjs';
+import { defaultConfig } from '../cinematic-tvc-director/scripts/lib/config.mjs';
 const cli = fileURLToPath(new URL('../cinematic-tvc-director/scripts/tvc.mjs', import.meta.url));
 const fixture = fileURLToPath(new URL('./fixtures/fake-relay.mjs', import.meta.url));
 test('terminal setup, custom provider, model binding, install and project snapshots', t => {
@@ -16,6 +18,9 @@ test('terminal setup, custom provider, model binding, install and project snapsh
     assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
   };
   call('setup','--provider','codex','--workflow','focused');
+  const scoped = join(dir, 'scoped'); mkdirSync(scoped);
+  call('setup','--provider','codex','--model','gpt-test','--scope','project','--project',scoped);
+  assert.equal(JSON.parse(readFileSync(join(scoped,'.tvc/config.json'))).default.model, 'gpt-test');
   call('providers','add','fixture','--relay',fixture);
   call('assign','director','--provider','fixture');
   const config = JSON.parse(readFileSync(join(env.TVC_HOME,'config.json')));
@@ -30,7 +35,36 @@ test('terminal setup, custom provider, model binding, install and project snapsh
   assert.equal(after.config.roles.dop.model, 'custom-model');
   const installed = call('install-skill','--target',join(dir,'skills'));
   assert.ok(existsSync(join(installed.destination,'scripts/tvc.mjs')));
+  assert.ok(existsSync(join(dir,'skills','cinematic-tvc-setup','SKILL.md')));
   const duplicate = spawnSync(process.execPath,[cli,'install-skill','--target',join(dir,'skills')],{env,cwd:dir,encoding:'utf8',windowsHide:true});
   assert.equal(duplicate.status,1);
   assert.match(duplicate.stderr,/already exists/);
+});
+
+test('setup proposal table names the director and every advertising role', () => {
+  const output = renderCrewTable(defaultConfig('codex', 'gpt-example'), { default: 'test' });
+  assert.match(output, /\* director/);
+  for (const id of ['creative','research','dop','casting','production-bible','image-prompts','music-prompts']) {
+    assert.match(output, new RegExp(id));
+  }
+  assert.equal(output.split('\n').filter(line => /^\| /.test(line)).length, 27);
+});
+
+test('quick setup assigns department work to every selected provider', () => {
+  const config = defaultConfig();
+  const profiles = {
+    codex: { implementer: 'codex', model: 'gpt-6-astra', effort: 'high' },
+    claude: { implementer: 'claude', model: 'opus', effort: 'high' },
+  };
+  config.enabled = Object.keys(profiles);
+  config.default = profiles.codex;
+  config.orchestrator = profiles.claude;
+  const basis = {};
+  assignBalancedGroups(config, config.enabled, profiles, basis, 'quick assignment');
+
+  const assigned = new Set(Object.values(config.roles).map(binding => binding.implementer));
+  assigned.add(config.default.implementer);
+  assert.deepEqual([...assigned].sort(), ['claude', 'codex']);
+  assert.match(renderCrewTable(config, basis), /gpt-6-astra/);
+  assert.match(renderCrewTable(config, basis), /opus/);
 });

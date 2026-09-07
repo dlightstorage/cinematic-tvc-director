@@ -20,4 +20,9 @@ for (const role of Object.values(ROLES)) for (const ref of role.references) {
 }
 const entry = readFileSync(join(SKILL_ROOT, 'SKILL.md'), 'utf8');
 if (!entry.startsWith('---') || !entry.includes('name: cinematic-tvc-director')) throw new Error('Invalid skill entrypoint.');
-console.log(`${files.length} scripts parse; all ${Object.keys(ROLES).length} role reference paths exist.`);
+const setupEntry = readFileSync(join(SKILL_ROOT, '..', 'cinematic-tvc-setup', 'SKILL.md'), 'utf8');
+if (!setupEntry.startsWith('---') || !setupEntry.includes('name: cinematic-tvc-setup')) throw new Error('Invalid setup skill entrypoint.');
+const manifest = JSON.parse(readFileSync(join(SKILL_ROOT, '..', 'skills.sh.json'), 'utf8'));
+const listed = manifest.groupings.flatMap(group => group.skills);
+for (const name of ['cinematic-tvc-director', 'cinematic-tvc-setup']) if (!listed.includes(name)) throw new Error(`skills.sh.json is missing ${name}`);
+console.log(`${files.length} scripts parse; all ${Object.keys(ROLES).length} role reference paths and both skill entrypoints exist.`);

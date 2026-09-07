@@ -19,9 +19,10 @@ export function stopTree(pid) {
   if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
   else { try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch {} } }
 }
-export async function discover() {
+export async function discover({ usage = false } = {}) {
   return new Promise((resolveResult, reject) => {
-    const child = spawn(process.execPath, [join(VENDOR, 'skills/delegate-setup/scripts/discover.mjs')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const args = [join(VENDOR, 'skills/delegate-setup/scripts/discover.mjs'), ...(usage ? ['--usage'] : [])];
+    const child = spawn(process.execPath, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });

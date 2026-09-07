@@ -1,0 +1,19 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "groupings": [
+    {
+      "title": "Cinematic advertising production",
+      "description": "Plan, delegate, review and package cinematic commercials with a 24-role production crew.",
+      "skills": [
+        "cinematic-tvc-director"
+      ]
+    },
+    {
+      "title": "Setup",
+      "description": "Discover agent CLIs, choose the director and models, review the full crew table, then approve the configuration.",
+      "skills": [
+        "cinematic-tvc-setup"
+      ]
+    }
+  ]
+}
