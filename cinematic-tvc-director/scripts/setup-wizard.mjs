@@ -321,7 +321,7 @@ export async function interactiveSetup({ cwd = process.cwd() } = {}) {
         const approved = answer(await prompts.confirm({ message: 'Save and activate this advertising crew?', initialValue: true }));
         if (!approved) continue;
         const path = writeConfig(config, { scope, cwd });
-        prompts.outro(`Crew activated at ${path}. Run tvc studio to start a commercial.`);
+        prompts.outro(`Crew activated at ${path}. Run tvc studio whenever you want to edit it visually.`);
         return { saved: path, scope, config };
       }
     }

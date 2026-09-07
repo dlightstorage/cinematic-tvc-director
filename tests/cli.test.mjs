@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { renderCrewTable } from '../cinematic-tvc-director/scripts/setup-wizard.mjs';
 import { defaultConfig } from '../cinematic-tvc-director/scripts/lib/config.mjs';
 import { buildRecommendedConfig } from '../cinematic-tvc-director/scripts/lib/tvc-presets.mjs';
+import { createStudioSession } from '../cinematic-tvc-director/scripts/studio.mjs';
 const cli = fileURLToPath(new URL('../cinematic-tvc-director/scripts/tvc.mjs', import.meta.url));
 const fixture = fileURLToPath(new URL('./fixtures/fake-relay.mjs', import.meta.url));
 test('terminal setup, custom provider, model binding, install and project snapshots', t => {
@@ -76,4 +77,41 @@ test('advertising presets cover single and dual account choices by role complexi
     assert.equal(config.orchestrator.implementer, expected);
     assert.ok(Object.values(config.roles).every(binding => binding.implementer === expected));
   }
+});
+
+test('visual Studio edits and saves the validated runtime configuration', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'tvc-studio-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const previousHome = process.env.TVC_HOME;
+  process.env.TVC_HOME = join(dir, 'settings');
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.TVC_HOME;
+    else process.env.TVC_HOME = previousHome;
+  });
+  const report = { discovered: [
+    { key: 'codex', authenticated: true, version: 'test-codex', supports: ['model', 'effort'], models: { status: 'reported', values: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'] } },
+    { key: 'claude', authenticated: true, version: 'test-claude', supports: ['model', 'effort'], models: { status: 'aliases', values: ['opus', 'sonnet', 'haiku'] } },
+  ] };
+  const session = await createStudioSession({ cwd: dir, openBrowser: false, report });
+  t.after(() => session.close());
+  const stateResponse = await fetch(new URL('api/state', session.url));
+  assert.equal(stateResponse.status, 200);
+  const state = await stateResponse.json();
+  assert.equal(state.accountMode, 'dual');
+  assert.equal(state.roles.length, 24);
+  assert.equal(state.config.orchestrator.model, 'gpt-6-astra');
+
+  state.config.roles.creative = { implementer: 'claude', model: 'sonnet', effort: 'high' };
+  state.basis.creative = 'Studio test override';
+  const saveResponse = await fetch(new URL('api/save', session.url), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ config: state.config, accountMode: state.accountMode, scope: 'project', basis: state.basis, complexity: state.complexity }),
+  });
+  assert.equal(saveResponse.status, 200, await saveResponse.text());
+  const result = await session.done;
+  assert.equal(result.action, 'saved');
+  const saved = JSON.parse(readFileSync(join(dir, '.tvc', 'config.json')));
+  assert.deepEqual(saved.roles.creative, { implementer: 'claude', model: 'sonnet', effort: 'high' });
+  assert.equal(saved.setup.preset, 'advertising-studio.v1');
 });

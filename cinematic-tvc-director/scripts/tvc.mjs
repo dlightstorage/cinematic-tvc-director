@@ -27,7 +27,7 @@ import { plans } from './lib/plans.mjs';
 import { migrateLegacy } from './lib/migrate.mjs';
 import { interactiveSetup } from './setup-wizard.mjs';
 
-const help = `Cinematic TVC Director 0.4.0
+const help = `Cinematic TVC Director 0.5.0
 
   tvc setup                         Account choice, automatic preset and approval wizard
   tvc setup --provider codex [--model MODEL] [--enable LIST] [--scope global|project]
@@ -43,7 +43,8 @@ const help = `Cinematic TVC Director 0.4.0
   tvc roles                          Show role bindings
   tvc assign ROLE --provider NAME [--model MODEL] [--effort LEVEL]
   tvc configure [--workflow original|focused] [--authority ask|director] [--concurrency N] [--max-rounds N]
-  tvc studio                         Interactive terminal control room
+  tvc studio                         Open the visual crew configuration Studio
+  tvc studio --terminal              Open the classic terminal control room
   tvc skills attach ROLE PATH        Attach another skill folder to a role
   tvc install-skill --host codex|claude|agents [--target PATH] [--update]
 
@@ -70,9 +71,9 @@ Project commands use the current directory or --project PATH.
 --json produces machine-readable output. Plans and model runs are persisted locally.
 `;
 
-const strings = ['provider','model','enable','effort','variant','project','brief','value','entity','reason','instruction','roles','host','target','relay','file','authority','concurrency','max-rounds','timeout','workflow','search','band','size','input-tokens','output-tokens','deliverables','limit','offset','scope'];
+const strings = ['provider','model','enable','effort','variant','project','brief','value','entity','reason','instruction','roles','host','target','relay','file','authority','concurrency','max-rounds','timeout','workflow','search','band','size','input-tokens','output-tokens','deliverables','limit','offset','scope','port'];
 const options = Object.fromEntries(strings.map(key => [key, { type: 'string' }]));
-for (const key of ['help','json','retry-failed','yes','update']) options[key] = { type: 'boolean' };
+for (const key of ['help','json','retry-failed','yes','update','terminal','no-open']) options[key] = { type: 'boolean' };
 const { values: flags, positionals } = parseArgs({ options, allowPositionals: true });
 const [command, subcommand, argument] = positionals;
 const root = resolve(flags.project || process.cwd());
@@ -160,8 +161,14 @@ async function main() {
   }
   if (command === 'plans') return show(plans(subcommand));
   if (command === 'studio') {
+    if (flags.terminal) {
+      const module = await import('./terminal-studio.mjs');
+      return show(await module.terminalStudio());
+    }
     const module = await import('./studio.mjs');
-    return module.studio();
+    const port = flags.port === undefined ? 0 : Number(flags.port);
+    required(Number.isInteger(port) && port >= 0 && port <= 65535, 'port must be 0..65535.');
+    return show(await module.studio({ port, openBrowser: !flags['no-open'] }));
   }
   if (command === 'providers') {
     if (subcommand === 'list' || !subcommand) return show(IMPLEMENTERS.map(i => ({ id: i.key, binary: i.binary, supports: i.supports, verification: 'upstream-relay; local live status documented separately' })));

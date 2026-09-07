@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cinematic TVC Studio</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="loading" class="loading-screen">
+    <div class="loader-mark">TVC</div>
+    <p>Reading your production crew...</p>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">TVC</div>
+        <div>
+          <h1>Cinematic TVC Director</h1>
+          <p>Production crew configuration</p>
+        </div>
+      </div>
+      <div class="session-status"><span class="status-dot"></span>Local secure session</div>
+    </header>
+
+    <main>
+      <section class="account-band" aria-labelledby="account-heading">
+        <div class="section-copy">
+          <span class="eyebrow">AI ACCOUNTS</span>
+          <h2 id="account-heading">Choose the crew that produces your advertising work</h2>
+          <p>Changing this selection loads the expert advertising preset. You can then tune every role.</p>
+        </div>
+        <div id="account-modes" class="segmented" role="radiogroup" aria-label="AI account mode"></div>
+        <div id="provider-status" class="provider-status"></div>
+      </section>
+
+      <section class="summary-strip" aria-label="Current configuration summary">
+        <div><span>Director</span><strong id="metric-director"></strong></div>
+        <div><span>Roles</span><strong id="metric-roles"></strong></div>
+        <div><span>Accounts</span><strong id="metric-accounts"></strong></div>
+        <div><span>Parallel runs</span><strong id="metric-concurrency"></strong></div>
+      </section>
+
+      <div class="workspace">
+        <aside class="sidebar">
+          <nav id="tabs" class="tabs" aria-label="Studio sections">
+            <button type="button" class="tab active" data-tab="crew"><span class="tab-index">01</span><span>Crew assignments</span></button>
+            <button type="button" class="tab" data-tab="production"><span class="tab-index">02</span><span>Production controls</span></button>
+            <button type="button" class="tab" data-tab="technical"><span class="tab-index">03</span><span>Technical preview</span></button>
+          </nav>
+          <div class="scope-panel">
+            <label for="scope">Apply settings to</label>
+            <select id="scope">
+              <option value="global">All TVC projects</option>
+              <option value="project">This project only</option>
+            </select>
+            <p id="scope-path"></p>
+          </div>
+        </aside>
+
+        <section class="content-panel">
+          <div id="panel-crew" class="panel active">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">CREW MATRIX</span>
+                <h2>Models and reasoning by role</h2>
+                <p>Every model shown below was reported by its installed provider CLI.</p>
+              </div>
+              <button id="reset-preset" type="button" class="secondary-button">Restore expert preset</button>
+            </div>
+            <div class="filters">
+              <label class="search-field">
+                <span>Search roles</span>
+                <input id="role-search" type="search" placeholder="Director, treatment, VFX..." autocomplete="off">
+              </label>
+              <label>
+                <span>Department</span>
+                <select id="group-filter"><option value="all">All departments</option></select>
+              </label>
+              <div id="visible-count" class="visible-count"></div>
+            </div>
+            <div class="crew-table-wrap">
+              <table class="crew-table">
+                <thead><tr><th>Advertising role</th><th>Complexity</th><th>Provider</th><th>Exact model</th><th>Effort</th><th>Refs</th></tr></thead>
+                <tbody id="crew-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="panel-production" class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">PRODUCTION CONTROLS</span>
+                <h2>How the crew works</h2>
+                <p>These controls affect execution, review and unresolved creative decisions.</p>
+              </div>
+            </div>
+            <div class="settings-grid">
+              <label class="setting-row"><span><strong>Production workflow</strong><small>Full original workflow or a deliberately narrow pass.</small></span><select id="workflow"><option value="original">Original - six stages</option><option value="focused">Focused production</option></select></label>
+              <label class="setting-row"><span><strong>Creative authority</strong><small>Who resolves choices not already locked in the brief.</small></span><select id="authority"><option value="ask">Ask me</option><option value="director">Director decides</option></select></label>
+              <label class="setting-row"><span><strong>Parallel department runs</strong><small>More parallel work is faster but uses more account capacity.</small></span><select id="concurrency"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
+              <label class="setting-row"><span><strong>Maximum review rounds</strong><small>Bounded refinement before returning control to you.</small></span><select id="rounds"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+              <label class="setting-row"><span><strong>Model run timeout</strong><small>Maximum time allowed for one delegated creative pass.</small></span><select id="timeout"><option value="600">10 minutes</option><option value="1200">20 minutes</option><option value="1800">30 minutes</option><option value="3600">60 minutes</option><option value="7200">120 minutes</option></select></label>
+            </div>
+          </div>
+
+          <div id="panel-technical" class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">TECHNICAL PREVIEW</span>
+                <h2>Configuration that will be saved</h2>
+                <p>This is a read-only preview of the same configuration used by the terminal runtime.</p>
+              </div>
+            </div>
+            <pre id="technical-json" class="technical-json"></pre>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="actionbar">
+      <div><strong id="change-status">No unsaved changes</strong><span>Nothing is written until final approval.</span></div>
+      <div class="actions">
+        <button id="cancel" type="button" class="ghost-button">Cancel</button>
+        <button id="save" type="button" class="primary-button">Review &amp; Apply</button>
+      </div>
+    </footer>
+  </div>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <span class="eyebrow">FINAL APPROVAL</span>
+      <h2>Activate this advertising crew?</h2>
+      <p id="confirm-summary"></p>
+      <div class="dialog-facts" id="confirm-facts"></div>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost-button">Keep editing</button>
+        <button id="confirm-save" value="default" class="primary-button">Save &amp; Apply</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -15,6 +15,12 @@ for (const path of files) {
   const r = spawnSync(process.execPath, ['--check', path], { encoding: 'utf8', windowsHide: true });
   if (r.status !== 0) throw new Error(`${path}\n${r.stderr}`);
 }
+const studioClient = join(SKILL_ROOT, 'scripts', 'assets', 'studio', 'app.js');
+const clientCheck = spawnSync(process.execPath, ['--check', studioClient], { encoding: 'utf8', windowsHide: true });
+if (clientCheck.status !== 0) throw new Error(`${studioClient}\n${clientCheck.stderr}`);
+for (const asset of ['index.html', 'styles.css']) {
+  if (!existsSync(join(SKILL_ROOT, 'scripts', 'assets', 'studio', asset))) throw new Error(`Missing Studio asset: ${asset}`);
+}
 for (const role of Object.values(ROLES)) for (const ref of role.references) {
   if (!existsSync(join(SKILL_ROOT, 'references', ref))) throw new Error(`Missing ${ref}`);
 }

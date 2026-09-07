@@ -1,85 +1,264 @@
-import { spawnSync } from 'node:child_process';
-import { createInterface } from 'node:readline/promises';
-import { stdin, stdout } from 'node:process';
+import { createServer } from 'node:http';
+import { readFileSync, existsSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { stdout } from 'node:process';
+import { ROLES } from './lib/roles.mjs';
+import { configLocation, loadConfig, validateConfig, writeConfig } from './lib/config.mjs';
+import { discover } from './lib/adapter.mjs';
+import { ACCOUNT_MODES, ROLE_PRESETS, buildRecommendedConfig } from './lib/tvc-presets.mjs';
+import { GROUPS, renderCrewTable, renderProductionSummary } from './setup-wizard.mjs';
 
-const cli = fileURLToPath(new URL('./tvc.mjs', import.meta.url));
-const menu = `
-CINEMATIC TVC DIRECTOR
-  1  Setup / edit fleet
-  2  Doctor: installed tools and account access
-  3  Model catalog: refresh and search
-  4  Subscription and billing guide
-  5  Show all role assignments
-  6  Create a production project
-  7  Select an existing project
-  8  Plan / continue intake gates
-  9  Show decisions
- 10  Approve a decision
- 11  Approve plan
- 12  Run / resume production
- 13  Show status
- 14  Export approved packages
- 15  Assign provider/model to one role
- 16  List or install provider CLIs
-  0  Exit
-`;
-function call(args, cwd) {
-  const result = spawnSync(process.execPath, [cli, ...args], { cwd, stdio: 'inherit', windowsHide: false });
-  if (result.error) throw result.error;
-  return result.status;
+const CORE_PROVIDERS = ['codex', 'claude'];
+const ASSETS = Object.freeze({
+  '': ['index.html', 'text/html; charset=utf-8'],
+  'app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  'styles.css': ['styles.css', 'text/css; charset=utf-8'],
+});
+const EFFORTS = Object.freeze({ codex: ['', 'low', 'medium', 'high', 'xhigh', 'max'], claude: ['', 'low', 'medium', 'high'] });
+
+function accountModeFor(config) {
+  const codex = config?.enabled?.includes('codex');
+  const claude = config?.enabled?.includes('claude');
+  if (codex && claude) return 'dual';
+  if (claude) return 'claude';
+  return 'codex';
 }
-export async function studio() {
-  if (!stdin.isTTY) throw new Error('tvc studio needs an interactive terminal.');
-  const terminal = createInterface({ input: stdin, output: stdout });
-  let project = process.cwd();
-  try {
-    while (true) {
-      stdout.write(`${menu}\nCurrent project: ${project}\n`);
-      const choice = (await terminal.question('Choose: ')).trim();
-      if (choice === '0') break;
-      if (choice === '1') {
-        call(['setup']);
-      } else if (choice === '2') call(['doctor']);
-      else if (choice === '3') {
-        const source = (await terminal.question('Refresh source [openrouter/modelsdev] (openrouter): ')).trim() || 'openrouter';
-        call(['catalog', 'refresh', source]);
-        const search = (await terminal.question('Search name/provider (blank for all): ')).trim();
-        const band = (await terminal.question('Cost band [free/economy/standard/premium/unknown] (blank for all): ')).trim();
-        call(['catalog', 'list', source, ...(search ? ['--search', search] : []), ...(band ? ['--band', band] : [])]);
-      } else if (choice === '4') {
-        const provider = (await terminal.question('Provider (blank for overview): ')).trim(); call(['plans', ...(provider ? [provider] : [])]);
-      } else if (choice === '5') call(['roles']);
-      else if (choice === '15') {
-        const role = (await terminal.question('Role ID (director, creative, dop, ...): ')).trim();
-        const provider = (await terminal.question('Provider CLI ID: ')).trim();
-        const model = (await terminal.question('Exact model ID (blank uses provider default): ')).trim();
-        const effort = (await terminal.question('Effort (blank if unsupported): ')).trim();
-        call(['assign', role, '--provider', provider, ...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])]);
+
+function providerState(report, key) {
+  const entry = report.discovered.find(item => item.key === key);
+  if (!entry) return 'install-required';
+  if (entry.authenticated === true) return 'ready';
+  if (entry.authenticated === false) return 'sign-in-required';
+  return 'verification-required';
+}
+
+function roleBinding(config, roleId) {
+  return roleId === 'director' ? config.orchestrator : config.roles[roleId] || config.default;
+}
+
+function metadata(config) {
+  const setup = config.setup || {};
+  return {
+    basis: Object.fromEntries(Object.keys(ROLES).map(id => [id, setup.basis?.[id] || ROLE_PRESETS[id]?.why || 'Current manual configuration'])),
+    complexity: Object.fromEntries(Object.keys(ROLES).map(id => [id, setup.complexity?.[id] || ROLE_PRESETS[id]?.level || 'custom'])),
+  };
+}
+
+function clientState({ config, report, cwd, scope, basis, complexity }) {
+  const groupByRole = Object.fromEntries(GROUPS.flatMap(group => group.roles.map(id => [id, group.id])));
+  groupByRole.director = 'direction';
+  return {
+    product: { name: 'Cinematic TVC Director', version: '0.5.0' },
+    cwd,
+    scope,
+    accountMode: accountModeFor(config),
+    config,
+    basis,
+    complexity,
+    accountModes: ACCOUNT_MODES,
+    groups: [{ id: 'direction', label: 'Direction', roles: ['director'] }, ...GROUPS],
+    roles: Object.values(ROLES).map(item => ({ ...item, group: groupByRole[item.id] })),
+    providers: CORE_PROVIDERS.map(key => {
+      const entry = report.discovered.find(item => item.key === key);
+      return {
+        key,
+        name: key === 'codex' ? 'Codex' : 'Claude',
+        state: providerState(report, key),
+        version: entry?.version || 'Not installed',
+        models: entry?.models?.values || [],
+        supports: entry?.supports || [],
+        efforts: EFFORTS[key],
+      };
+    }),
+  };
+}
+
+function json(response, status, value) {
+  const body = JSON.stringify(value);
+  response.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  response.end(body);
+}
+
+async function bodyJSON(request) {
+  let body = '';
+  for await (const chunk of request) {
+    body += chunk;
+    if (body.length > 1_000_000) throw new Error('Request is too large.');
+  }
+  return JSON.parse(body || '{}');
+}
+
+function open(url) {
+  let child;
+  if (process.platform === 'win32') {
+    const candidates = [
+      process.env.LOCALAPPDATA && `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+      process.env['ProgramFiles(x86)'] && `${process.env['ProgramFiles(x86)']}\\Google\\Chrome\\Application\\chrome.exe`,
+      process.env.PROGRAMFILES && `${process.env.PROGRAMFILES}\\Google\\Chrome\\Application\\chrome.exe`,
+      process.env['ProgramFiles(x86)'] && `${process.env['ProgramFiles(x86)']}\\Microsoft\\Edge\\Application\\msedge.exe`,
+      process.env.PROGRAMFILES && `${process.env.PROGRAMFILES}\\Microsoft\\Edge\\Application\\msedge.exe`,
+    ].find(path => path && existsSync(path));
+    child = candidates
+      ? spawn(candidates, [`--app=${url}`], { windowsHide: false, detached: true, stdio: 'ignore' })
+      : spawn('cmd.exe', ['/d', '/s', '/c', `start "" "${url}"`], { windowsHide: true, detached: true, stdio: 'ignore' });
+  }
+  else if (process.platform === 'darwin') child = spawn('open', [url], { detached: true, stdio: 'ignore' });
+  else child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+  child.on('error', () => {});
+  child.unref();
+}
+
+function assertReady(report, mode) {
+  for (const provider of ACCOUNT_MODES[mode].providers) {
+    const state = providerState(report, provider);
+    if (state !== 'ready') throw new Error(`${provider} is ${state.replaceAll('-', ' ')}. Run tvc setup to install or sign in, then reopen Studio.`);
+  }
+}
+
+function knownModels(report, original) {
+  const values = Object.fromEntries(CORE_PROVIDERS.map(provider => [provider, new Set(
+    report.discovered.find(item => item.key === provider)?.models?.values || [],
+  )]));
+  if (original) for (const roleId of Object.keys(ROLES)) {
+    const binding = roleBinding(original, roleId);
+    if (binding?.model && values[binding.implementer]) values[binding.implementer].add(binding.model);
+  }
+  return values;
+}
+
+function validateStudioConfig(candidate, { mode, report, original }) {
+  if (!Object.hasOwn(ACCOUNT_MODES, mode)) throw new Error('Choose a valid account mode.');
+  assertReady(report, mode);
+  const config = structuredClone(candidate);
+  config.enabled = [...ACCOUNT_MODES[mode].providers];
+  const models = knownModels(report, original);
+  for (const roleId of Object.keys(ROLES)) {
+    const binding = roleBinding(config, roleId);
+    if (!binding || !config.enabled.includes(binding.implementer)) throw new Error(`${roleId} must use one of the selected accounts.`);
+    if (binding.model && !models[binding.implementer]?.has(binding.model)) throw new Error(`${binding.model} was not reported by the ${binding.implementer} CLI.`);
+    if (binding.effort && !EFFORTS[binding.implementer]?.includes(binding.effort)) throw new Error(`${binding.effort} is not available for ${binding.implementer}.`);
+  }
+  return validateConfig(config);
+}
+
+export async function createStudioSession({ cwd = process.cwd(), port = 0, openBrowser = true, report: suppliedReport } = {}) {
+  const report = suppliedReport || await discover();
+  const location = configLocation(cwd);
+  const existing = existsSync(location.path) ? loadConfig(cwd) : null;
+  const defaultMode = existing ? accountModeFor(existing)
+    : CORE_PROVIDERS.every(key => providerState(report, key) === 'ready') ? 'dual'
+      : providerState(report, 'claude') === 'ready' ? 'claude' : 'codex';
+  const initial = existing ? { config: structuredClone(existing), ...metadata(existing) }
+    : buildRecommendedConfig({ accountMode: defaultMode, report });
+  const token = randomBytes(24).toString('hex');
+  const prefix = `/${token}/`;
+  let current = clientState({ ...initial, report, cwd, scope: location.source });
+  let finish;
+  const done = new Promise(resolveDone => { finish = resolveDone; });
+  let settled = false;
+
+  const server = createServer(async (request, response) => {
+    try {
+      const host = request.headers.host || '';
+      if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(host)) return json(response, 403, { error: 'Loopback access only.' });
+      const url = new URL(request.url, `http://${host}`);
+      if (!url.pathname.startsWith(prefix)) return json(response, 404, { error: 'Not found.' });
+      const route = url.pathname.slice(prefix.length);
+      if (request.method === 'GET' && Object.hasOwn(ASSETS, route)) {
+        const [file, type] = ASSETS[route];
+        const body = readFileSync(new URL(`./assets/studio/${file}`, import.meta.url));
+        response.writeHead(200, {
+          'Content-Type': type,
+          'Content-Length': body.length,
+          'Cache-Control': 'no-store',
+          'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+          'Referrer-Policy': 'no-referrer',
+          'X-Content-Type-Options': 'nosniff',
+        });
+        return response.end(body);
       }
-      else if (choice === '16') {
-        call(['providers', 'list']);
-        const provider = (await terminal.question('Install provider ID (blank to return): ')).trim();
-        if (provider) call(['providers', 'install', provider]);
+      if (request.method === 'GET' && route === 'api/state') return json(response, 200, current);
+      if (request.method === 'POST' && route === 'api/preset') {
+        const { accountMode } = await bodyJSON(request);
+        if (!Object.hasOwn(ACCOUNT_MODES, accountMode)) return json(response, 400, { error: 'Unknown account mode.' });
+        assertReady(report, accountMode);
+        const preset = buildRecommendedConfig({ accountMode, report, existing: current.config });
+        current = clientState({ ...preset, report, cwd, scope: current.scope });
+        return json(response, 200, current);
       }
-      else if (choice === '6') {
-        const directory = (await terminal.question('New project directory: ')).trim();
-        const brief = (await terminal.question('Brief file path: ')).trim();
-        if (call(['init', directory, '--brief', brief]) === 0) project = directory;
-      } else if (choice === '7') project = (await terminal.question('Project directory: ')).trim() || project;
-      else if (choice === '8') call(['plan', '--project', project]);
-      else if (choice === '9') call(['decisions', '--project', project]);
-      else if (choice === '10') {
-        const id = (await terminal.question('Pending decision ID: ')).trim();
-        const value = (await terminal.question('Your exact decision: ')).trim();
-        call(['approve', id, '--value', value, '--project', project]);
-      } else if (choice === '11') call(['approve', 'plan', '--project', project]);
-      else if (choice === '12') call(['resume', '--retry-failed', '--project', project]);
-      else if (choice === '13') call(['status', '--project', project]);
-      else if (choice === '14') call(['export', '--project', project]);
-      else stdout.write('Unknown choice.\n');
-      await terminal.question('\nPress Enter to return to the control room...');
+      if (request.method === 'POST' && route === 'api/save') {
+        const payload = await bodyJSON(request);
+        if (!['global', 'project'].includes(payload.scope)) return json(response, 400, { error: 'Choose global or project scope.' });
+        const config = validateStudioConfig(payload.config, { mode: payload.accountMode, report, original: existing });
+        config.setup = {
+          version: 'tvc-fleet-setup.v3',
+          preset: 'advertising-studio.v1',
+          accountMode: payload.accountMode,
+          scope: payload.scope,
+          approvedAt: new Date().toISOString(),
+          basis: payload.basis || current.basis,
+          complexity: payload.complexity || current.complexity,
+        };
+        const saved = writeConfig(config, { scope: payload.scope, cwd });
+        current = clientState({ config, report, cwd, scope: payload.scope, basis: config.setup.basis, complexity: config.setup.complexity });
+        const result = { action: 'saved', saved, scope: payload.scope, accountMode: payload.accountMode, config, basis: current.basis, complexity: current.complexity };
+        json(response, 200, { ok: true, saved });
+        settled = true;
+        finish(result);
+        return setTimeout(() => {
+          server.close();
+          server.closeAllConnections?.();
+        }, 700);
+      }
+      if (request.method === 'POST' && route === 'api/cancel') {
+        json(response, 200, { ok: true });
+        settled = true;
+        finish({ action: 'cancelled' });
+        return setTimeout(() => {
+          server.close();
+          server.closeAllConnections?.();
+        }, 200);
+      }
+      return json(response, 404, { error: 'Not found.' });
+    } catch (error) {
+      return json(response, 400, { error: error.message });
     }
-  } finally { terminal.close(); }
-  return 'Studio closed.';
+  });
+
+  server.on('close', () => {
+    if (!settled) finish({ action: 'closed' });
+  });
+  await new Promise((resolveListen, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolveListen);
+  });
+  const address = server.address();
+  const url = `http://127.0.0.1:${address.port}${prefix}`;
+  if (openBrowser) open(url);
+  return { url, done, close: () => server.close() };
+}
+
+export async function studio(options = {}) {
+  stdout.write('Cinematic TVC Studio is checking your accounts and models...\n');
+  const session = await createStudioSession(options);
+  stdout.write(`Studio opened at ${session.url}\nKeep this terminal open until you choose Save & Apply or Cancel.\n`);
+  const result = await session.done;
+  if (result.action !== 'saved') return 'Studio closed. No settings were changed.';
+  return [
+    '',
+    'CINEMATIC TVC DIRECTOR - ACTIVE CREW',
+    renderProductionSummary(result.config, result.accountMode),
+    '',
+    renderCrewTable(result.config, result.basis, result.complexity),
+    '',
+    `Saved: ${result.saved}`,
+    'The selected crew is active for future TVC work.',
+  ].join('\n');
 }

@@ -54,6 +54,13 @@ tvc setup
 tvc studio
 ```
 
+`tvc studio` opens a private localhost configuration page and keeps the terminal
+waiting. Edit account mode, provider, exact model, reasoning effort, scope and
+production controls, then choose **Save & Apply**. The temporary page shuts down
+and the activated 24-role crew is printed back in the terminal. Existing settings
+are loaded unchanged when Studio opens. The former text menu remains available as
+`tvc studio --terminal`.
+
 No npm registry release is claimed. To try the runtime from a source checkout:
 
 ```sh

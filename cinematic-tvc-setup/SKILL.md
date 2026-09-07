@@ -2,7 +2,7 @@
 name: cinematic-tvc-setup
 description: >-
   Discover installed agent CLIs and configure the Cinematic TVC Director production
-  fleet through an approval-first setup wizard. Use when the user asks to install,
+  fleet through an approval-first terminal wizard or local visual Studio. Use when the user asks to install,
   set up, configure, reconfigure, choose models, assign advertising departments,
   select an orchestrator, or review the TVC crew table.
 ---
@@ -17,8 +17,9 @@ This is the setup companion to `cinematic-tvc-director`.
 1. Locate the sibling `cinematic-tvc-director` skill in the current agent's skill
    directory. Prefer the global `tvc` command when it exists; otherwise run
    `node <cinematic-tvc-director>/scripts/tvc.mjs setup`.
-2. Start `tvc setup` in an interactive terminal. Do not replace the wizard with a
-   hand-written config.
+2. Use `tvc setup` for first-time CLI installation and sign-in. Use `tvc studio`
+   for visual configuration or later edits. Both write the same validated config;
+   do not replace either flow with a hand-written config.
 3. Let discovery report Codex and Claude CLI, authentication state and model IDs.
 4. Ask only which account mode the creative user wants: Codex only, Codex + Claude,
    or Claude only. Offer official CLI installation and provider-owned sign-in when
@@ -35,6 +36,12 @@ This is the setup companion to `cinematic-tvc-director`.
    Do not write before approval.
 8. On approval, choose Global or Project scope, show a concise final summary and
    ask for confirmation. A cancellation writes nothing.
+
+The browser Studio must bind to loopback only, preserve the current crew on open,
+and accept models reported by the installed provider CLIs. Its Save & Apply action
+writes only after final approval, closes the temporary server, and returns the
+complete activated crew summary to the launching terminal. Use `tvc studio
+--terminal` only when the user prefers the classic terminal control room.
 
 Never claim that an installed CLI is authenticated when discovery reports false
 or unknown. Never invent model IDs. Keep non-Codex/Claude providers out of the

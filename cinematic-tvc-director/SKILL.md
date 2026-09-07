@@ -43,7 +43,10 @@ Codex, Claude or both and assigns reported models and effort from the role's TVC
 complexity. Its review screen exposes every role for overrides. `assign` remains
 the advanced command for individual roles. `skills attach` adds domain guidance.
 
-Use `studio` for the interactive terminal control room. Use `catalog refresh` and
+Use `studio` for the local visual crew editor. It preserves current assignments,
+writes the same validated runtime config only after Save & Apply, and returns the
+activated crew summary to the terminal. Use `studio --terminal` for the classic
+terminal control room. Use `catalog refresh` and
 `catalog list` only to discover current public model metadata. A catalog item is
 not proof of account access or relay compatibility. Use `plans` for dated vendor
 access/billing references; never purchase a plan, enable overages or spend credits
