@@ -1,7 +1,8 @@
 # Third-party Sources
 
 The delegate-skills code bundled under
-`cinematic-tvc-director/scripts/vendor/delegate-skills/` is from
+`cinematic-tvc-director/scripts/vendor/delegate-skills/` and exposed for Skills
+CLI discovery under `skills/` is from
 https://github.com/amElnagdy/delegate-skills at commit
 `b781ee2e23089630e2fbee1cfd6174afe4edeb76`.
 

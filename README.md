@@ -9,7 +9,7 @@ relays from the [reference video](https://www.youtube.com/watch?v=YZbu0fndK40),
 with the supplied cinematic production library preserved. Source revision and
 license attribution are in [THIRD-PARTY.md](THIRD-PARTY.md).
 
-Version 0.3 runs the supplied original six-stage workflow by default. Its intake
+Version 0.3.1 runs the supplied original six-stage workflow by default. Its intake
 rounds, source decision ledger, trace gate, consolidation barrier, handoff gate,
 negative-brief review and generation approvals are enforced in state instead of
 being prompt-only guidance. Use `--workflow focused` only for deliberately narrow
@@ -25,10 +25,14 @@ video. GitHub access is required while this repository is private:
 npx skills add dlightstorage/cinematic-tvc-director
 ```
 
-Use Space to select both `cinematic-tvc-director` and `cinematic-tvc-setup`, then
-choose the agent hosts, Global or Project scope, Symlink or Copy, and confirm.
-Symlink is the recommended Skills CLI default. After installation, open any
-selected orchestrating agent and ask:
+The installer now exposes 20 selectable skills, matching the upstream list-style
+experience: the two cinematic skills plus all 18 upstream delegation skills.
+Use Space to select `cinematic-tvc-director` and `cinematic-tvc-setup`; optionally
+select any individual delegate bridges you also want. Then choose the agent hosts,
+Global or Project scope, Symlink or Copy, and confirm. Symlink is the recommended
+Skills CLI default. These entries are agent/CLI skills, not model names and do not
+install the provider binaries. After installation, open any selected orchestrating
+agent and ask:
 
 ```text
 Use $cinematic-tvc-setup to discover my installed model CLIs and build my advertising production fleet.

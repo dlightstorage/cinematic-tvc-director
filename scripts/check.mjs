@@ -24,5 +24,18 @@ const setupEntry = readFileSync(join(SKILL_ROOT, '..', 'cinematic-tvc-setup', 'S
 if (!setupEntry.startsWith('---') || !setupEntry.includes('name: cinematic-tvc-setup')) throw new Error('Invalid setup skill entrypoint.');
 const manifest = JSON.parse(readFileSync(join(SKILL_ROOT, '..', 'skills.sh.json'), 'utf8'));
 const listed = manifest.groupings.flatMap(group => group.skills);
-for (const name of ['cinematic-tvc-director', 'cinematic-tvc-setup']) if (!listed.includes(name)) throw new Error(`skills.sh.json is missing ${name}`);
-console.log(`${files.length} scripts parse; all ${Object.keys(ROLES).length} role reference paths and both skill entrypoints exist.`);
+const delegateNames = [
+  'agy-delegate', 'aider-delegate', 'claude-delegate', 'cline-delegate',
+  'codex-delegate', 'commandcode-delegate', 'copilot-delegate',
+  'cursor-delegate', 'delegate-setup', 'grok-delegate', 'kimi-delegate',
+  'omp-delegate', 'opencode-delegate', 'pi-delegate', 'qoder-delegate',
+  'vibe-delegate', 'warp-delegate', 'zcode-delegate',
+];
+const publicSkills = ['cinematic-tvc-director', 'cinematic-tvc-setup', ...delegateNames];
+for (const name of publicSkills) {
+  if (!listed.includes(name)) throw new Error(`skills.sh.json is missing ${name}`);
+  if (!existsSync(join(SKILL_ROOT, '..', name.startsWith('cinematic-') ? name : join('skills', name), 'SKILL.md'))) {
+    throw new Error(`Missing public skill entrypoint: ${name}`);
+  }
+}
+console.log(`${files.length} scripts parse; ${Object.keys(ROLES).length} role references and all ${publicSkills.length} public skills exist.`);

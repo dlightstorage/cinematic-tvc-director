@@ -14,6 +14,36 @@
       "skills": [
         "cinematic-tvc-setup"
       ]
+    },
+    {
+      "title": "Optional delegate bridges",
+      "description": "Install individual CLI delegation skills alongside the TVC production system.",
+      "skills": [
+        "claude-delegate",
+        "cline-delegate",
+        "codex-delegate",
+        "opencode-delegate",
+        "agy-delegate",
+        "grok-delegate",
+        "kimi-delegate",
+        "qoder-delegate",
+        "vibe-delegate",
+        "cursor-delegate",
+        "pi-delegate",
+        "omp-delegate",
+        "aider-delegate",
+        "copilot-delegate",
+        "warp-delegate",
+        "zcode-delegate",
+        "commandcode-delegate"
+      ]
+    },
+    {
+      "title": "Original generic setup",
+      "description": "Install the upstream coding-oriented fleet setup skill when it is also wanted.",
+      "skills": [
+        "delegate-setup"
+      ]
     }
   ]
 }

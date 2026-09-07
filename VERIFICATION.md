@@ -16,11 +16,14 @@ departments, all 155 parsed source decisions, trace-before-consolidation, final
 trace, structured master rows, standard-test evidence, handoff review and legacy
 state migration. The complete suite has 18 tests. Version 0.3 adds the Skills CLI
 package manifest, the companion setup skill, project-scoped crew configuration
-and a self-contained TTY fleet wizard with approval-before-write.
+and a self-contained TTY fleet wizard with approval-before-write. Version 0.3.1
+also exposes all 18 pinned upstream delegation skills as top-level Skills CLI
+choices, for 20 discoverable skills in total.
 
-`npm run check` parses all bundled executable modules and verifies the 24 role
-reference paths. The skill-creator `quick_validate.py` validator accepts the main
-skill. YAML is only needed for this development-time validator, not the runtime.
+`npm run check` parses all bundled executable modules, verifies the 24 role
+reference paths and verifies all 20 public skill entrypoints. The skill-creator
+`quick_validate.py` validator accepts the main and cinematic setup skills. YAML is
+only needed for this development-time validator, not the runtime.
 
 ## Live provider evidence
 
@@ -57,7 +60,7 @@ authentication, independently of the ChatGPT connector. No npm registry
 publication was performed. Cross-platform CI results are available in the
 repository's Actions tab; local test results alone do not establish CI success.
 
-Paid media execution and native PPTX rendering remain outside the 0.3.0 terminal
+Paid media execution and native PPTX rendering remain outside the 0.3.1 terminal
 runtime. The approved export includes a print-ready HTML client presentation.
 Original Markdown-only project state can be imported with `tvc migrate`; legacy
 assets stay unapproved until their row and spend authorization are verified.
