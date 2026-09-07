@@ -10,9 +10,10 @@ description: >-
 # Cinematic TVC Director
 
 Turn a commercial brief into production documents using the supplied cinematic
-library and real delegated CLI runs. The user chooses the orchestrator and every
-department's tool, model and supported reasoning settings. The terminal runtime
-is bundled in this skill; no separate chat service is required.
+library and real delegated CLI runs. Setup asks only whether the user has Codex,
+Claude or both, then applies an advertising preset for the orchestrator, models
+and reasoning effort. Every assignment remains editable before approval. The
+terminal runtime is bundled in this skill; no separate chat service is required.
 
 The terminal runtime defaults to the original six-stage production loop. It
 enforces the six ordered intake rounds, all 155 department source decisions,
@@ -37,9 +38,10 @@ The same runtime is available as `tvc` after installing the npm package.
 
 Read [delegation.md](references/delegation.md) for setup and provider configuration.
 Use `doctor` to discover installed CLIs and available model IDs; missing or unknown
-authentication is not successful verification. `setup` selects enabled providers,
-the default department model and a separately selectable director. `assign` changes
-individual roles. `skills attach` adds domain guidance to a role.
+authentication is not successful verification. Interactive `setup` is limited to
+Codex, Claude or both and assigns reported models and effort from the role's TVC
+complexity. Its review screen exposes every role for overrides. `assign` remains
+the advanced command for individual roles. `skills attach` adds domain guidance.
 
 Use `studio` for the interactive terminal control room. Use `catalog refresh` and
 `catalog list` only to discover current public model metadata. A catalog item is

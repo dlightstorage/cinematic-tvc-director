@@ -27,9 +27,9 @@ import { plans } from './lib/plans.mjs';
 import { migrateLegacy } from './lib/migrate.mjs';
 import { interactiveSetup } from './setup-wizard.mjs';
 
-const help = `Cinematic TVC Director 0.3.1
+const help = `Cinematic TVC Director 0.4.0
 
-  tvc setup                         Visual discover/interview/approve wizard
+  tvc setup                         Account choice, automatic preset and approval wizard
   tvc setup --provider codex [--model MODEL] [--enable LIST] [--scope global|project]
   tvc doctor                         Discover installed CLIs, auth and models
   tvc providers list                 Bundled relay catalog

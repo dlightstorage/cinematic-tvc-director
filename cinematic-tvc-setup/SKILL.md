@@ -19,20 +19,26 @@ This is the setup companion to `cinematic-tvc-director`.
    `node <cinematic-tvc-director>/scripts/tvc.mjs setup`.
 2. Start `tvc setup` in an interactive terminal. Do not replace the wizard with a
    hand-written config.
-3. Let discovery report installed CLIs, authentication state and model IDs.
-4. The user chooses Quick defaults, Interview, Usage scan, or the existing fleet.
-   Usage scan reads session counts and timestamps only, never conversation text.
-5. The user chooses enabled providers, the top-level director/orchestrator, exact
-   model IDs and supported reasoning effort or variant.
-6. Show the model-profile table followed by the complete 24-role advertising
+3. Let discovery report Codex and Claude CLI, authentication state and model IDs.
+4. Ask only which account mode the creative user wants: Codex only, Codex + Claude,
+   or Claude only. Offer official CLI installation and provider-owned sign-in when
+   a selected account is not ready.
+5. Build the advertising preset automatically. Select only model IDs reported by
+   the installed CLI, and scale effort from low for routine roles through medium
+   and high to director-level reasoning for complex roles.
+6. Show the production controls and model-profile table followed by the complete 24-role advertising
    table. Every role row must point to a profile and include its task, provider
-   and assignment basis; every profile includes its exact model and reasoning.
-7. Keep offering Approve, Modify one role, Modify a department group, Modify
-   production settings, Restart and Cancel. Do not write before approval.
-8. On approval, choose Global or Project scope, show the exact JSON and ask for
-   final confirmation. A cancellation writes nothing.
+   assignment basis and reference count; every profile includes its exact model
+   and reasoning.
+7. Keep offering Approve, change one role, change a department group, change
+   production controls, view technical configuration, change accounts and Cancel.
+   Do not write before approval.
+8. On approval, choose Global or Project scope, show a concise final summary and
+   ask for confirmation. A cancellation writes nothing.
 
 Never claim that an installed CLI is authenticated when discovery reports false
-or unknown. Never invent model IDs. Catalog availability is not account access.
+or unknown. Never invent model IDs. Keep non-Codex/Claude providers out of the
+creative setup wizard; they remain available through advanced CLI configuration.
+Catalog availability is not account access.
 Do not buy subscriptions, enable overages, create API keys, or dispatch a TVC run
 from this setup skill.

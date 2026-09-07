@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { assignBalancedGroups, renderCrewTable } from '../cinematic-tvc-director/scripts/setup-wizard.mjs';
+import { renderCrewTable } from '../cinematic-tvc-director/scripts/setup-wizard.mjs';
 import { defaultConfig } from '../cinematic-tvc-director/scripts/lib/config.mjs';
+import { buildRecommendedConfig } from '../cinematic-tvc-director/scripts/lib/tvc-presets.mjs';
 const cli = fileURLToPath(new URL('../cinematic-tvc-director/scripts/tvc.mjs', import.meta.url));
 const fixture = fileURLToPath(new URL('./fixtures/fake-relay.mjs', import.meta.url));
 test('terminal setup, custom provider, model binding, install and project snapshots', t => {
@@ -50,21 +51,24 @@ test('setup proposal table names the director and every advertising role', () =>
   assert.equal(output.split('\n').filter(line => /^\| /.test(line)).length, 27);
 });
 
-test('quick setup assigns department work to every selected provider', () => {
-  const config = defaultConfig();
-  const profiles = {
-    codex: { implementer: 'codex', model: 'gpt-6-astra', effort: 'high' },
-    claude: { implementer: 'claude', model: 'opus', effort: 'high' },
-  };
-  config.enabled = Object.keys(profiles);
-  config.default = profiles.codex;
-  config.orchestrator = profiles.claude;
-  const basis = {};
-  assignBalancedGroups(config, config.enabled, profiles, basis, 'quick assignment');
+test('advertising presets cover single and dual account choices by role complexity', () => {
+  const report = { discovered: [
+    { key: 'codex', supports: ['model', 'effort'], models: { values: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'] } },
+    { key: 'claude', supports: ['model', 'effort'], models: { values: ['opus', 'sonnet', 'haiku'] } },
+  ] };
+  const dual = buildRecommendedConfig({ accountMode: 'dual', report });
+  assert.deepEqual(dual.config.enabled, ['codex', 'claude']);
+  assert.deepEqual(dual.config.orchestrator, { implementer: 'codex', model: 'gpt-6-astra', effort: 'xhigh' });
+  assert.equal(dual.config.roles.creative.implementer, 'codex');
+  assert.deepEqual(dual.config.roles.treatment, { implementer: 'claude', model: 'opus', effort: 'high' });
+  assert.deepEqual(dual.config.roles.wardrobe, { implementer: 'codex', model: 'gpt-5.6-luna', effort: 'low' });
+  assert.match(renderCrewTable(dual.config, dual.basis, dual.complexity), /treatment\s+\| heavy\s+\| claude/);
+  assert.match(renderCrewTable(dual.config, dual.basis, dual.complexity), /Refs/);
 
-  const assigned = new Set(Object.values(config.roles).map(binding => binding.implementer));
-  assigned.add(config.default.implementer);
-  assert.deepEqual([...assigned].sort(), ['claude', 'codex']);
-  assert.match(renderCrewTable(config, basis), /gpt-6-astra/);
-  assert.match(renderCrewTable(config, basis), /opus/);
+  for (const mode of ['codex', 'claude']) {
+    const { config } = buildRecommendedConfig({ accountMode: mode, report });
+    const expected = mode;
+    assert.equal(config.orchestrator.implementer, expected);
+    assert.ok(Object.values(config.roles).every(binding => binding.implementer === expected));
+  }
 });

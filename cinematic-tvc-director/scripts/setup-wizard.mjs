@@ -1,15 +1,13 @@
 import * as prompts from './lib/prompts.mjs';
 import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { ROLES } from './lib/roles.mjs';
-import {
-  configLocation,
-  defaultConfig,
-  loadConfig,
-  validateConfig,
-  writeConfig,
-} from './lib/config.mjs';
+import { configLocation, loadConfig, validateConfig, writeConfig } from './lib/config.mjs';
 import { discover } from './lib/adapter.mjs';
+import { installProvider } from './lib/install.mjs';
+import { ACCOUNT_MODES, buildRecommendedConfig } from './lib/tvc-presets.mjs';
 
+const CORE_PROVIDERS = Object.freeze(['codex', 'claude']);
 const GROUPS = Object.freeze([
   { id: 'strategy', label: 'Strategy, concept and story', roles: ['creative', 'research', 'treatment', 'storyboard'] },
   { id: 'picture', label: 'Picture and production world', roles: ['dop', 'colorist', 'production-design'] },
@@ -20,20 +18,15 @@ const GROUPS = Object.freeze([
 ]);
 
 class Cancelled extends Error {}
+class SetupRequired extends Error {}
 
 function answer(value) {
   if (prompts.isCancel(value)) throw new Cancelled();
   return value;
 }
 
-function sameBinding(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function roleBinding(config, roleId) {
-  return roleId === 'director' ? config.orchestrator : config.roles[roleId] || config.default;
-}
-
+function sameBinding(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+function roleBinding(config, roleId) { return roleId === 'director' ? config.orchestrator : config.roles[roleId] || config.default; }
 function setRoleBinding(config, roleId, binding) {
   const copy = structuredClone(binding);
   if (roleId === 'director') config.orchestrator = copy;
@@ -52,19 +45,24 @@ function table(headers, rows, widths) {
   return [line, row(headers), line, ...rows.map(row), line].join('\n');
 }
 
-export function renderDiscovery(report) {
-  const rows = report.discovered.map(item => [
-    item.key,
-    item.authenticated === true ? 'ready' : item.authenticated === false ? 'login needed' : 'unknown',
-    item.models?.status || 'unknown',
-    item.models?.values?.length || 0,
-    item.version || 'unknown',
-  ]);
-  if (!rows.length) rows.push(['none', 'not ready', 'none', 0, 'Install a provider CLI first']);
-  return table(['Provider', 'Account', 'Models', '#', 'Version'], rows, [10, 12, 8, 3, 23]);
+function providerRecord(report, key) { return report.discovered.find(item => item.key === key) || null; }
+function providerState(report, key) {
+  const item = providerRecord(report, key);
+  if (!item) return 'install required';
+  if (item.authenticated === true) return 'ready';
+  if (item.authenticated === false) return 'sign-in required';
+  return 'verification required';
 }
 
-export function renderCrewTable(config, basis = {}) {
+export function renderDiscovery(report) {
+  const rows = CORE_PROVIDERS.map(key => {
+    const item = providerRecord(report, key);
+    return [key === 'codex' ? 'Codex' : 'Claude', providerState(report, key), item?.models?.values?.length || 0, item?.version || 'not installed'];
+  });
+  return table(['Account', 'Status', 'Models', 'CLI version'], rows, [10, 19, 6, 27]);
+}
+
+export function renderCrewTable(config, basis = {}, complexity = {}) {
   const ordered = Object.values(ROLES);
   const profiles = [];
   const profileIds = new Map();
@@ -85,68 +83,118 @@ export function renderCrewTable(config, basis = {}) {
     const binding = roleBinding(config, item.id);
     return [
       item.id === 'director' ? '* director' : item.id,
-      profileIds.get(JSON.stringify(binding)),
+      complexity[item.id] || 'custom',
       binding.implementer,
-      basis[item.id] || basis.default || 'default binding',
+      profileIds.get(JSON.stringify(binding)),
+      item.references.length,
+      basis[item.id] || basis.default || 'Manual configuration',
     ];
   });
   return [
     table(['ID', 'Provider', 'Exact model', 'Reasoning'], profileRows, [3, 10, 31, 16]),
     '',
-    table(['Advertising role/task', 'Profile', 'Provider', 'Basis'], rows, [22, 7, 10, 22]),
+    table(['Advertising role', 'Level', 'Provider', 'ID', 'Refs', 'Purpose'], rows, [18, 6, 8, 3, 4, 17]),
   ].join('\n');
 }
 
-function providerEntries(report, existing) {
-  const entries = [...report.discovered];
-  for (const key of Object.keys(existing?.customProviders || {})) if (!entries.some(item => item.key === key)) {
-    entries.push({ key, version: 'custom relay', authenticated: null, models: { status: 'unsupported', values: [] }, supports: ['model', 'effort'] });
+export function renderProductionSummary(config, accountMode) {
+  return table(['Setting', 'Selected value', 'Why'], [
+    ['Account mode', ACCOUNT_MODES[accountMode]?.label || accountMode, 'Your only required choice'],
+    ['Workflow', config.workflowMode, 'Full six-stage TVC process'],
+    ['Decision authority', config.authority, 'Major choices return to you'],
+    ['Parallel runs', config.concurrency, 'Safe production throughput'],
+    ['Review rounds', config.maxRounds, 'Bounded quality refinement'],
+    ['Run timeout', `${config.timeoutSeconds / 60} minutes`, 'Allows long creative passes'],
+  ], [20, 19, 27]);
+}
+
+function accountModeFor(config) {
+  const hasCodex = config?.enabled?.includes('codex');
+  const hasClaude = config?.enabled?.includes('claude');
+  if (hasCodex && hasClaude) return 'dual';
+  if (hasClaude) return 'claude';
+  return 'codex';
+}
+
+function accountHint(report, providers) { return providers.map(key => `${key}: ${providerState(report, key)}`).join(', '); }
+function loginCommand(provider) { return provider === 'codex' ? 'codex login' : 'claude auth login'; }
+
+async function rediscover(spin, message) {
+  spin.start(message);
+  const report = await discover();
+  spin.stop('Account check complete');
+  return report;
+}
+
+async function ensureAccounts(providers, initialReport, spin) {
+  let report = initialReport;
+  for (const provider of providers) {
+    let entry = providerRecord(report, provider);
+    if (!entry) {
+      prompts.note(
+        `${provider === 'codex' ? 'Codex' : 'Claude'} CLI is not installed. The official installer will run; account authorization remains with the provider.`,
+        'CLI installation required',
+      );
+      const install = answer(await prompts.confirm({ message: `Install ${provider} CLI now?`, initialValue: true }));
+      if (!install) throw new SetupRequired(`No settings changed. Install later with: tvc providers install ${provider}`);
+      await installProvider(provider);
+      report = await rediscover(spin, `Checking ${provider} after installation`);
+      entry = providerRecord(report, provider);
+    }
+    if (!entry) throw new SetupRequired(`The ${provider} CLI is still unavailable. Open a fresh terminal and run tvc setup again.`);
+    if (entry.authenticated !== true) {
+      prompts.note(
+        'A provider-owned browser or terminal sign-in will open. This skill never reads or stores your password or API key.',
+        `${provider === 'codex' ? 'Codex' : 'Claude'} sign-in`,
+      );
+      const signIn = answer(await prompts.confirm({ message: `Sign in to ${provider} now?`, initialValue: true }));
+      if (!signIn) throw new SetupRequired(`No settings changed. Sign in later with: ${loginCommand(provider)}`);
+      const args = provider === 'codex' ? ['login'] : ['auth', 'login'];
+      spawnSync(entry.path || entry.binary || provider, args, { stdio: 'inherit', windowsHide: false, shell: process.platform === 'win32' });
+      report = await rediscover(spin, `Verifying ${provider} account access`);
+      entry = providerRecord(report, provider);
+      if (entry?.authenticated !== true) {
+        throw new SetupRequired(`${provider} is not ready yet. Complete sign-in with: ${loginCommand(provider)}, then rerun tvc setup.`);
+      }
+    }
   }
-  return entries;
+  return report;
 }
 
 function modelOptions(entry, current) {
   const values = [...new Set([...(current?.model ? [current.model] : []), ...(entry.models?.values || [])])];
-  const options = values.map(value => ({ value, label: value }));
-  if (entry.key !== 'opencode') options.unshift({ value: '', label: 'Use provider default' });
-  return options;
+  return [{ value: '', label: 'Use provider default' }, ...values.map(value => ({ value, label: value }))];
 }
 
-async function chooseBinding(entry, current = {}, pace = 'balanced') {
-  const options = modelOptions(entry, current);
-  let model = '';
-  if (options.length) {
-    model = answer(await prompts.select({
-      message: `Model for ${entry.key}`,
-      options,
-      initialValue: current.model || (entry.key === 'opencode' ? options[0]?.value : ''),
-    }));
-  } else if (entry.supports.includes('model')) {
-    model = answer(await prompts.text({
-      message: `Exact model ID for ${entry.key}`,
-      placeholder: entry.key === 'opencode' ? 'provider/model (required)' : 'Leave blank for provider default',
-      initialValue: current.model || '',
-      validate: value => entry.key === 'opencode' && !/^[^/]+\/.+/.test(value || '') ? 'OpenCode requires provider/model.' : undefined,
-    }));
-  }
+async function chooseBinding(entry, current = {}) {
+  const model = answer(await prompts.select({ message: `Model for ${entry.key}`, options: modelOptions(entry, current), initialValue: current.model || '' }));
   const binding = { implementer: entry.key, ...(model ? { model } : {}) };
-  const dialName = entry.supports.includes('variant') ? 'variant' : entry.supports.includes('effort') ? 'effort' : null;
-  if (dialName) {
-    const preferred = current[dialName] || (pace === 'fast' ? 'low' : pace === 'thorough' ? 'high' : 'medium');
-    const dial = answer(await prompts.select({
-      message: `${dialName === 'variant' ? 'Thinking variant' : 'Thinking effort'} for ${entry.key}`,
+  if (entry.supports.includes('effort')) {
+    const effort = answer(await prompts.select({
+      message: `Reasoning effort for ${entry.key}`,
       options: [
         { value: '', label: 'Use provider default' },
-        { value: 'low', label: 'Low - fast / light' },
-        { value: 'medium', label: 'Medium - balanced' },
-        { value: 'high', label: 'High - thorough' },
-        ...(entry.key === 'codex' ? [{ value: 'xhigh', label: 'XHigh - heavy' }, { value: 'max', label: 'Max - heaviest' }] : []),
+        { value: 'low', label: 'Low - routine role' },
+        { value: 'medium', label: 'Medium - standard production role' },
+        { value: 'high', label: 'High - complex creative role' },
+        ...(entry.key === 'codex' ? [
+          { value: 'xhigh', label: 'XHigh - director-level reasoning' },
+          { value: 'max', label: 'Max - exceptional final review' },
+        ] : []),
       ],
-      initialValue: preferred,
+      initialValue: current.effort || '',
     }));
-    if (dial) binding[dialName] = dial;
+    if (effort) binding.effort = effort;
   }
   return binding;
+}
+
+function representativeProfiles(config) {
+  const bindings = [config.orchestrator, config.default, ...Object.values(config.roles || {})];
+  return Object.fromEntries(config.enabled.map(provider => [
+    provider,
+    structuredClone(bindings.find(binding => binding.implementer === provider) || { implementer: provider }),
+  ]));
 }
 
 function assignGroup(config, groupId, binding, basis, label) {
@@ -157,279 +205,133 @@ function assignGroup(config, groupId, binding, basis, label) {
   }
 }
 
-function assignBalancedGroups(config, providerOrder, profiles, basis, label) {
-  const order = providerOrder.filter((key, index) => profiles[key] && providerOrder.indexOf(key) === index);
-  GROUPS.forEach((group, index) => {
-    const provider = order[index % order.length];
-    assignGroup(config, group.id, profiles[provider], basis, `${label}: ${provider}`);
-  });
-}
-
-function usageTable(report) {
-  return table(['Provider', 'Sessions', 'Last used'], report.discovered.map(item => [
-    item.key,
-    item.usage?.sessions ?? 'unknown',
-    item.usage?.lastUsed || 'unknown',
-  ]), [12, 8, 28]);
-}
-
-async function interview(enabled) {
-  const critical = answer(await prompts.select({
-    message: 'Which advertising work matters most in your usual projects?',
-    options: GROUPS.map(group => ({ value: group.id, label: group.label })),
-  }));
-  const burn = answer(await prompts.multiselect({
-    message: 'Which subscriptions should this crew actively use?',
-    options: enabled.map(key => ({ value: key, label: key })),
-    required: false,
-  }));
-  const spare = answer(await prompts.multiselect({
-    message: 'Which subscriptions should the crew protect or use sparingly?',
-    options: enabled.map(key => ({ value: key, label: key })),
-    required: false,
-  }));
-  const trusted = answer(await prompts.select({
-    message: 'Which provider do you trust for critical creative review?',
-    options: [{ value: '', label: 'No preference' }, ...enabled.map(key => ({ value: key, label: key }))],
-  }));
-  const pace = answer(await prompts.select({
-    message: 'Default working style',
-    options: [
-      { value: 'fast', label: 'Fast and economical' },
-      { value: 'balanced', label: 'Balanced' },
-      { value: 'thorough', label: 'Slow and thorough' },
-    ],
-    initialValue: 'balanced',
-  }));
-  return { critical, burn, spare, trusted, pace };
-}
-
-function baseProposal(existing, enabled, defaultBinding, directorBinding) {
-  const config = existing ? structuredClone(existing) : defaultConfig(defaultBinding.implementer, defaultBinding.model);
-  config.enabled = [...enabled];
-  config.default = structuredClone(defaultBinding);
-  config.orchestrator = structuredClone(directorBinding);
-  config.roles = {};
-  config.workflowMode ||= 'original';
-  config.authority ||= 'ask';
-  config.concurrency ||= 3;
-  config.maxRounds ||= 2;
-  config.timeoutSeconds ||= 1200;
-  return config;
-}
-
 async function productionSettings(config) {
+  prompts.section('3A / 4', 'Production Controls', 'Change only what your workflow genuinely needs.');
   config.workflowMode = answer(await prompts.select({
     message: 'Production workflow',
     options: [
-      { value: 'original', label: 'Original - all six stages and 155 decisions' },
-      { value: 'focused', label: 'Focused - deliberately narrow work' },
+      { value: 'original', label: 'Original', hint: 'all six stages and 155 decisions' },
+      { value: 'focused', label: 'Focused', hint: 'deliberately narrow production' },
     ],
     initialValue: config.workflowMode,
   }));
   config.authority = answer(await prompts.select({
-    message: 'Who owns unresolved creative choices?',
+    message: 'Unresolved creative decisions',
     options: [
-      { value: 'ask', label: 'Ask me before locking major choices' },
-      { value: 'director', label: 'Let the director decide inside the brief' },
+      { value: 'ask', label: 'Ask me', hint: 'recommended for client-facing work' },
+      { value: 'director', label: 'Director decides', hint: 'inside the approved brief only' },
     ],
     initialValue: config.authority,
   }));
-  config.concurrency = Number(answer(await prompts.select({
-    message: 'Maximum parallel department runs',
-    options: [1, 2, 3, 4, 6, 8].map(value => ({ value, label: String(value) })),
-    initialValue: config.concurrency,
-  })));
-  config.maxRounds = Number(answer(await prompts.select({
-    message: 'Maximum review and revision rounds',
-    options: [1, 2, 3, 4, 5].map(value => ({ value, label: String(value) })),
-    initialValue: config.maxRounds,
-  })));
-  config.timeoutSeconds = Number(answer(await prompts.select({
-    message: 'Timeout for each model run',
-    options: [600, 1200, 1800, 3600].map(value => ({ value, label: `${value / 60} minutes` })),
-    initialValue: config.timeoutSeconds,
-  })));
+  config.concurrency = Number(answer(await prompts.select({ message: 'Parallel department runs', options: [1, 2, 3, 4, 6, 8].map(value => ({ value, label: String(value) })), initialValue: config.concurrency })));
+  config.maxRounds = Number(answer(await prompts.select({ message: 'Maximum review rounds', options: [1, 2, 3, 4, 5].map(value => ({ value, label: String(value) })), initialValue: config.maxRounds })));
+  config.timeoutSeconds = Number(answer(await prompts.select({ message: 'Timeout for each model run', options: [600, 1200, 1800, 3600].map(value => ({ value, label: `${value / 60} minutes` })), initialValue: config.timeoutSeconds })));
 }
 
-async function editProposal(config, basis, entries, profiles) {
+async function editProposal(config, basis, report, profiles) {
   const action = answer(await prompts.select({
-    message: 'Review the proposed TVC fleet',
+    message: 'What would you like to do?',
     options: [
-      { value: 'approve', label: 'Approve this table' },
-      { value: 'role', label: 'Modify one role' },
-      { value: 'group', label: 'Modify a department group' },
-      { value: 'settings', label: 'Modify production settings' },
-      { value: 'restart', label: 'Restart setup' },
+      { value: 'approve', label: 'Approve recommended crew' },
+      { value: 'role', label: 'Change one advertising role' },
+      { value: 'group', label: 'Change a department group' },
+      { value: 'settings', label: 'Change production controls' },
+      { value: 'technical', label: 'View technical configuration' },
+      { value: 'restart', label: 'Change account choice' },
       { value: 'cancel', label: 'Cancel without saving' },
     ],
   }));
   if (action === 'role') {
-    const roleId = answer(await prompts.select({
-      message: 'Role to modify',
-      options: Object.values(ROLES).map(item => ({ value: item.id, label: `${item.id} - ${item.name}` })),
-    }));
-    const provider = answer(await prompts.select({
-      message: `Provider for ${roleId}`,
-      options: config.enabled.map(key => ({ value: key, label: key })),
-      initialValue: roleBinding(config, roleId).implementer,
-    }));
-    const entry = entries.find(item => item.key === provider);
-    const binding = await chooseBinding(entry, roleBinding(config, roleId));
+    const roleId = answer(await prompts.select({ message: 'Advertising role to change', options: Object.values(ROLES).map(item => ({ value: item.id, label: `${item.id} - ${item.name}` })) }));
+    const provider = answer(await prompts.select({ message: `Provider for ${roleId}`, options: config.enabled.map(key => ({ value: key, label: key })), initialValue: roleBinding(config, roleId).implementer }));
+    const entry = providerRecord(report, provider);
+    const current = roleBinding(config, roleId);
+    const binding = await chooseBinding(entry, current.implementer === provider ? current : profiles[provider]);
     profiles[provider] = binding;
     setRoleBinding(config, roleId, binding);
-    basis[roleId] = 'your modification';
+    basis[roleId] = 'Your manual role override';
   } else if (action === 'group') {
-    const groupId = answer(await prompts.select({
-      message: 'Department group to modify',
-      options: GROUPS.map(group => ({ value: group.id, label: group.label })),
-    }));
-    const provider = answer(await prompts.select({
-      message: `Provider for ${GROUPS.find(item => item.id === groupId).label}`,
-      options: config.enabled.map(key => ({ value: key, label: key })),
-    }));
-    const entry = entries.find(item => item.key === provider);
-    const binding = await chooseBinding(entry, profiles[provider] || {});
+    const groupId = answer(await prompts.select({ message: 'Department group to change', options: GROUPS.map(group => ({ value: group.id, label: group.label })) }));
+    const provider = answer(await prompts.select({ message: `Provider for ${GROUPS.find(item => item.id === groupId).label}`, options: config.enabled.map(key => ({ value: key, label: key })) }));
+    const entry = providerRecord(report, provider);
+    const binding = await chooseBinding(entry, profiles[provider]);
     profiles[provider] = binding;
-    assignGroup(config, groupId, binding, basis, 'your group choice');
+    assignGroup(config, groupId, binding, basis, 'Your department override');
   } else if (action === 'settings') await productionSettings(config);
+  else if (action === 'technical') prompts.note(JSON.stringify(config, null, 2), 'Technical configuration preview');
   return action;
 }
 
 export async function interactiveSetup({ cwd = process.cwd() } = {}) {
   try {
-    prompts.intro('Cinematic TVC Director - fleet setup');
+    prompts.intro('CINEMATIC TVC DIRECTOR', 'Professional advertising crew setup - choose accounts, review, approve.');
     const spin = prompts.spinner();
-    spin.start('Discovering installed agent CLIs and model access');
-    let report = await discover();
-    spin.stop(`Found ${report.discovered.length} installed provider CLI(s)`);
+    let report = await rediscover(spin, 'Checking Codex and Claude on this machine');
     const location = configLocation(cwd);
     const existing = existsSync(location.path) ? loadConfig(cwd) : null;
-    prompts.note(renderDiscovery(report), 'Discovery');
-    if (existing) prompts.note(renderCrewTable(existing, { default: location.source }), `Current ${location.source} fleet`);
 
-    while (true) {
-      const mode = answer(await prompts.select({
-        message: 'How should the TVC crew be prepared?',
+    setupLoop: while (true) {
+      prompts.section('1 / 4', 'Choose Your AI Accounts', 'No model or technical setup is required at this stage.');
+      prompts.note(renderDiscovery(report), 'Account readiness');
+      if (existing) prompts.note(`A ${location.source} crew already exists. It remains unchanged until final approval.`, 'Safe update');
+      const accountMode = answer(await prompts.select({
+        message: 'Which accounts will produce this advertising work?',
         options: [
-          { value: 'quick', label: 'Quick defaults', hint: 'I propose a complete crew' },
-          { value: 'interview', label: 'Interview', hint: 'Ask about workload, subscriptions and quality' },
-          { value: 'usage', label: 'Usage scan', hint: 'Session counts and dates only; never reads chats' },
-          ...(existing ? [{ value: 'keep', label: 'Keep current fleet', hint: 'Review or edit it before saving' }] : []),
+          { value: 'codex', label: 'Codex only', hint: accountHint(report, ['codex']) },
+          { value: 'dual', label: 'Codex + Claude', hint: accountHint(report, ['codex', 'claude']) },
+          { value: 'claude', label: 'Claude only', hint: accountHint(report, ['claude']) },
         ],
+        initialValue: accountModeFor(existing),
       }));
-      if (mode === 'usage') {
-        spin.start('Counting local session metadata without reading conversations');
-        report = await discover({ usage: true });
-        spin.stop('Usage metadata scan complete');
-        prompts.note(usageTable(report), 'Usage metadata');
-      }
-      const entries = providerEntries(report, existing);
-      if (!entries.length) throw new Error('No provider CLI was found. Install Codex, Claude, OpenCode or another supported CLI, then rerun setup.');
-      const initialEnabled = existing?.enabled?.filter(key => entries.some(item => item.key === key)) || entries.filter(item => item.authenticated !== false).map(item => item.key);
-      const enabled = answer(await prompts.multiselect({
-        message: 'Select the provider CLIs this advertising crew may use',
-        options: entries.map(item => ({
-          value: item.key,
-          label: item.key,
-          hint: item.authenticated === true ? 'ready' : item.authenticated === false ? 'login required' : 'authentication unknown',
-        })),
-        initialValues: initialEnabled.length ? initialEnabled : [entries[0].key],
-        required: true,
-      }));
+      report = await ensureAccounts(ACCOUNT_MODES[accountMode].providers, report, spin);
 
-      let interviewAnswers = { pace: 'balanced', burn: [], spare: [], trusted: '', critical: 'strategy' };
-      if (mode === 'interview') interviewAnswers = await interview(enabled);
-      const enabledEntries = entries.filter(item => enabled.includes(item.key));
-      const defaultProvider = answer(await prompts.select({
-        message: 'Default provider for unassigned departments',
-        options: enabled.map(key => ({ value: key, label: key })),
-        initialValue: enabled.includes(existing?.default?.implementer) ? existing.default.implementer : enabled[0],
-      }));
-      const directorProvider = answer(await prompts.select({
-        message: 'Top-level director / orchestrator',
-        options: enabled.map(key => ({ value: key, label: key })),
-        initialValue: enabled.includes(existing?.orchestrator?.implementer) ? existing.orchestrator.implementer : defaultProvider,
-      }));
-
-      const profiles = {};
-      for (const entry of enabledEntries) {
-        const current = entry.key === existing?.orchestrator?.implementer ? existing.orchestrator
-          : entry.key === existing?.default?.implementer ? existing.default : {};
-        profiles[entry.key] = await chooseBinding(entry, current, interviewAnswers.pace);
-      }
-      const config = mode === 'keep' && existing ? structuredClone(existing)
-        : baseProposal(existing, enabled, profiles[defaultProvider], profiles[directorProvider]);
-      config.enabled = [...enabled];
-      config.default = structuredClone(profiles[defaultProvider]);
-      config.orchestrator = structuredClone(profiles[directorProvider]);
-      for (const [roleId, binding] of Object.entries(config.roles || {})) {
-        if (!enabled.includes(binding.implementer)) delete config.roles[roleId];
-      }
-      const basis = { default: mode === 'quick' ? 'quick default' : mode === 'usage' ? 'usage-informed' : mode === 'keep' ? 'existing' : 'interview' };
-      basis.director = 'your orchestrator choice';
-
-      if (mode !== 'keep') {
-        if (mode === 'quick') {
-          assignBalancedGroups(config, enabled, profiles, basis, 'quick assignment');
-          assignGroup(config, 'control', profiles[directorProvider], basis, 'director review gate');
-        } else if (mode === 'interview') {
-          const interviewOrder = [
-            ...interviewAnswers.burn,
-            ...enabled.filter(key => !interviewAnswers.burn.includes(key) && !interviewAnswers.spare.includes(key)),
-            ...interviewAnswers.spare,
-          ];
-          assignBalancedGroups(config, interviewOrder, profiles, basis, 'interview assignment');
-          const criticalProvider = interviewAnswers.trusted && !interviewAnswers.spare.includes(interviewAnswers.trusted)
-            ? interviewAnswers.trusted : directorProvider;
-          assignGroup(config, interviewAnswers.critical, profiles[criticalProvider], basis, 'interview: critical work');
-          const burnProvider = interviewAnswers.burn.find(key => !interviewAnswers.spare.includes(key));
-          if (burnProvider) assignGroup(config, 'generation', profiles[burnProvider], basis, 'interview: burn quota');
-          assignGroup(config, 'control', profiles[directorProvider], basis, 'independent control gate');
-        } else if (mode === 'usage') {
-          const ranked = report.discovered.filter(item => enabled.includes(item.key) && item.usage).sort((a, b) => a.usage.sessions - b.usage.sessions);
-          const usageOrder = [...ranked.map(item => item.key), ...enabled];
-          assignBalancedGroups(config, usageOrder, profiles, basis, 'usage-balanced');
-          assignGroup(config, 'control', profiles[directorProvider], basis, 'director review gate');
-        }
-      }
-      await productionSettings(config);
+      prompts.section('2 / 4', 'Advertising Preset', 'Models and effort are assigned automatically by role complexity.');
+      spin.start('Building the recommended 24-role production crew');
+      const { config, basis, complexity } = buildRecommendedConfig({ accountMode, report, existing });
       validateConfig(config);
+      spin.stop('Advertising preset ready');
+      prompts.note(renderProductionSummary(config, accountMode), 'Production settings');
+      const profiles = representativeProfiles(config);
 
-      let restart = false;
       while (true) {
-        prompts.note(renderCrewTable(config, basis), 'Proposed advertising fleet');
-        const action = await editProposal(config, basis, entries, profiles);
-        if (action === 'restart') { restart = true; break; }
+        prompts.section('3 / 4', 'Review Your Crew', 'Every role can be changed before anything is saved.');
+        prompts.note(renderCrewTable(config, basis, complexity), 'Recommended advertising crew');
+        const action = await editProposal(config, basis, report, profiles);
+        if (action === 'restart') continue setupLoop;
         if (action === 'cancel') throw new Cancelled();
         if (action !== 'approve') continue;
+
         const scope = answer(await prompts.select({
           message: 'Where should this approved crew apply?',
           options: [
-            { value: 'global', label: 'Global - all TVC projects on this machine' },
-            { value: 'project', label: `Project - ${cwd}` },
+            { value: 'global', label: 'Global', hint: 'all TVC projects on this machine' },
+            { value: 'project', label: 'This project only', hint: cwd },
           ],
           initialValue: location.source,
         }));
-        config.setup = { version: 'tvc-fleet-setup.v1', mode, scope, approvedAt: new Date().toISOString(), basis };
+        config.setup = { version: 'tvc-fleet-setup.v2', preset: 'advertising-expert.v1', accountMode, scope, approvedAt: new Date().toISOString(), basis, complexity };
         validateConfig(config);
-        prompts.note(JSON.stringify(config, null, 2), 'Exact configuration to write');
-        const approved = answer(await prompts.confirm({ message: 'Write this exact fleet configuration?', initialValue: true }));
+
+        prompts.section('4 / 4', 'Final Approval', 'The configuration is written only after your confirmation.');
+        prompts.note(renderProductionSummary(config, accountMode), 'Approved settings');
+        prompts.note(
+          `Director: ${config.orchestrator.implementer} / ${config.orchestrator.model || 'provider default'} / ${config.orchestrator.effort || 'provider effort'}\nRoles: ${Object.keys(ROLES).length}\nRole references: ${Object.values(ROLES).reduce((total, role) => total + role.references.length, 0)}\nScope: ${scope}`,
+          'Save summary',
+        );
+        const approved = answer(await prompts.confirm({ message: 'Save and activate this advertising crew?', initialValue: true }));
         if (!approved) continue;
         const path = writeConfig(config, { scope, cwd });
-        prompts.outro(`Fleet approved and saved to ${path}. Run tvc studio to start a commercial.`);
+        prompts.outro(`Crew activated at ${path}. Run tvc studio to start a commercial.`);
         return { saved: path, scope, config };
       }
-      if (!restart) break;
     }
-    return null;
   } catch (error) {
-    if (error instanceof Cancelled) {
-      prompts.cancel('Setup cancelled. No settings were written.');
+    if (error instanceof Cancelled || error instanceof SetupRequired) {
+      prompts.cancel(error.message || 'Setup cancelled. No settings were written.');
       return null;
     }
     throw error;
   }
 }
 
-export { GROUPS, assignBalancedGroups };
+export { GROUPS };

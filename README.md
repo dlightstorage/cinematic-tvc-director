@@ -9,7 +9,7 @@ relays from the [reference video](https://www.youtube.com/watch?v=YZbu0fndK40),
 with the supplied cinematic production library preserved. Source revision and
 license attribution are in [THIRD-PARTY.md](THIRD-PARTY.md).
 
-Version 0.3.1 runs the supplied original six-stage workflow by default. Its intake
+Version 0.4 runs the supplied original six-stage workflow by default. Its intake
 rounds, source decision ledger, trace gate, consolidation barrier, handoff gate,
 negative-brief review and generation approvals are enforced in state instead of
 being prompt-only guidance. Use `--workflow focused` only for deliberately narrow
@@ -35,16 +35,18 @@ install the provider binaries. After installation, open any selected orchestrati
 agent and ask:
 
 ```text
-Use $cinematic-tvc-setup to discover my installed model CLIs and build my advertising production fleet.
+Use $cinematic-tvc-setup to configure Codex, Claude, or both for my advertising production crew.
 ```
 
-The setup wizard follows `discover -> quick/interview/usage -> propose -> modify
-or approve -> scope -> exact JSON -> write`. It displays linked model profiles,
-the director first, and all 24 advertising roles with provider and assignment
-basis before saving anything.
+The setup wizard follows `choose accounts -> install/sign in if needed -> automatic
+advertising preset -> review or modify -> approve -> save`. The only required
+creative-user choice is Codex only, Codex + Claude, or Claude only. The preset
+selects reported model IDs and reasoning effort per role complexity, then displays
+linked model profiles, the director, all 24 advertising roles and their attached
+reference counts before saving.
 
-The optional global `tvc` command can be installed straight from GitHub without
-cloning after `gh auth setup-git`:
+The optional global `tvc` command can be installed straight from the public GitHub
+repository without cloning:
 
 ```powershell
 npm.cmd install --global "git+https://github.com/dlightstorage/cinematic-tvc-director.git"
@@ -71,14 +73,15 @@ comparison installation. Existing cinematic source files are not discarded.
 
 ## Choose Your Fleet
 
-Interactive `tvc setup` mirrors the reference fleet experience: it discovers
-installed CLIs, offers Quick defaults, Interview, Usage scan, or current-config
-review, and opens a full approval loop. The user can modify one role, a department
-group, the top-level director, or production controls before choosing Global or
-Project scope. For scripted setup:
+Interactive `tvc setup` is designed for advertising creatives rather than coding
+fleet administration. It asks whether the production uses Codex, Claude, or both;
+offers official CLI installation and provider-owned sign-in when needed; then
+builds an expert preset automatically. The user can modify one role, a department
+group, its exact model/effort, the director, or production controls before choosing
+Global or Project scope. For scripted setup:
 
 ```sh
-tvc setup --provider codex --enable codex,claude,agy
+tvc setup --provider codex --enable codex,claude
 tvc assign director --provider claude --model sonnet
 tvc assign dop --provider codex
 tvc assign voice --provider agy
@@ -86,8 +89,9 @@ tvc models --provider codex
 tvc configure --concurrency 3 --authority ask
 ```
 
-Examples are configurable choices, not prescribed model assignments. `tvc roles`
-shows all 24 roles; `tvc providers list` lists the 17 bundled upstream relays.
+The interactive advertising preset intentionally limits its account choice to
+Codex and Claude. Advanced terminal commands still support the 17 bundled upstream
+relays for specialist or coding workflows. `tvc roles` shows all 24 TVC roles.
 Tool/model availability depends on the installed CLI and account. Invalid dials
 are rejected instead of silently ignored.
 

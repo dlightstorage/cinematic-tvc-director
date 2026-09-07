@@ -12,7 +12,18 @@ function erase(lines) {
   stdout.write(Array.from({ length: lines }, (_, index) => `${index ? ESC + '1A' : ''}${ESC}2K\r`).join(''));
 }
 
-export function intro(message) { write(`\n+-- ${message} --+`); }
+export function intro(message, subtitle = '') {
+  const line = '+--------------------------------------------------------------------------+';
+  write(`\n${line}`);
+  write(`| ${message}`);
+  if (subtitle) write(`| ${subtitle}`);
+  write(line);
+}
+export function section(step, title, subtitle = '') {
+  write(`\n[ ${step} ] ${title}`);
+  write('--------------------------------------------------------------------------');
+  if (subtitle) write(subtitle);
+}
 export function outro(message) { write(`\n[done] ${message}\n`); }
 export function cancel(message) { write(`\n[cancelled] ${message}\n`); }
 export function note(message, title = 'Details') {

@@ -10,7 +10,7 @@
     },
     {
       "title": "Setup",
-      "description": "Discover agent CLIs, choose the director and models, review the full crew table, then approve the configuration.",
+      "description": "Choose Codex, Claude or both; apply the automatic advertising preset; review and approve the full crew.",
       "skills": [
         "cinematic-tvc-setup"
       ]

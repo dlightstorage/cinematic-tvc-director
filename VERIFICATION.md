@@ -20,6 +20,11 @@ and a self-contained TTY fleet wizard with approval-before-write. Version 0.3.1
 also exposes all 18 pinned upstream delegation skills as top-level Skills CLI
 choices, for 20 discoverable skills in total.
 
+Version 0.4 replaces the general fleet interview with a four-step creative setup:
+Codex/Claude account choice, readiness and sign-in, an automatic role-complexity
+preset, and review/approval. Preset tests cover Codex-only, Claude-only and dual
+account assignments, including distinct model tiers and reasoning effort.
+
 `npm run check` parses all bundled executable modules, verifies the 24 role
 reference paths and verifies all 20 public skill entrypoints. The skill-creator
 `quick_validate.py` validator accepts the main and cinematic setup skills. YAML is
@@ -60,7 +65,7 @@ authentication, independently of the ChatGPT connector. No npm registry
 publication was performed. Cross-platform CI results are available in the
 repository's Actions tab; local test results alone do not establish CI success.
 
-Paid media execution and native PPTX rendering remain outside the 0.3.1 terminal
+Paid media execution and native PPTX rendering remain outside the 0.4.0 terminal
 runtime. The approved export includes a print-ready HTML client presentation.
 Original Markdown-only project state can be imported with `tvc migrate`; legacy
 assets stay unapproved until their row and spend authorization are verified.
