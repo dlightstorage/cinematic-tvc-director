@@ -14,7 +14,7 @@ director authority, custom-provider registration and host-skill installation.
 Version 0.2 added an end-to-end original-workflow fixture covering all ten blind
 departments, all 155 parsed source decisions, trace-before-consolidation, final
 trace, structured master rows, standard-test evidence, handoff review and legacy
-state migration. The complete suite has 18 tests. Version 0.3 adds the Skills CLI
+state migration. The complete suite has 20 tests. Version 0.3 adds the Skills CLI
 package manifest, the companion setup skill, project-scoped crew configuration
 and a self-contained TTY fleet wizard with approval-before-write. Version 0.3.1
 also exposes all 18 pinned upstream delegation skills as top-level Skills CLI
@@ -30,6 +30,13 @@ loads the effective crew unchanged, edits all role bindings and production contr
 validates provider-reported models, writes only after final approval, shuts down
 the temporary server and prints the activated crew back to the terminal. The
 classic text control room remains available through `tvc studio --terminal`.
+
+Version 0.6 adds `tvc onboard`: a first-run account screen for installing,
+authenticating, selecting and rechecking Codex and Claude Code. Continuing with
+one ready account assigns every role to it; selecting both loads the expert split.
+Final approval writes the same runtime config and installs the cinematic skill in
+each selected agent host. Provider actions and the dual-account save path are
+covered with injected local fixtures and do not contact live accounts.
 
 `npm run check` parses all bundled executable modules, verifies the 24 role
 reference paths and verifies all 20 public skill entrypoints. The skill-creator
@@ -71,7 +78,7 @@ authentication, independently of the ChatGPT connector. No npm registry
 publication was performed. Cross-platform CI results are available in the
 repository's Actions tab; local test results alone do not establish CI success.
 
-Paid media execution and native PPTX rendering remain outside the 0.5.0 terminal
+Paid media execution and native PPTX rendering remain outside the 0.6.0 terminal
 runtime. The approved export includes a print-ready HTML client presentation.
 Original Markdown-only project state can be imported with `tvc migrate`; legacy
 assets stay unapproved until their row and spend authorization are verified.

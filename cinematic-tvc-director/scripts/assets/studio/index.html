@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cinematic TVC Studio</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -24,7 +25,46 @@
       <div class="session-status"><span class="status-dot"></span>Local secure session</div>
     </header>
 
-    <main>
+    <nav id="journey" class="journey" aria-label="Setup progress">
+      <span class="journey-step active" data-step="accounts"><b>1</b> Accounts</span>
+      <span class="journey-line"></span>
+      <span class="journey-step" data-step="crew"><b>2</b> Crew</span>
+      <span class="journey-line"></span>
+      <span class="journey-step" data-step="apply"><b>3</b> Apply</span>
+    </nav>
+
+    <main id="onboarding" class="onboarding" hidden>
+      <section class="onboarding-heading" aria-labelledby="onboarding-title">
+        <span class="eyebrow">ACCOUNT SETUP</span>
+        <h2 id="onboarding-title">Choose the AI accounts for your advertising crew</h2>
+        <p>Use Codex, Claude Code, or both. The Studio will detect the models available to each signed-in account and build the full 24-role crew automatically.</p>
+      </section>
+
+      <section class="provider-setup" aria-label="Available AI accounts">
+        <div class="provider-list-heading">
+          <span>Account</span><span>Local status</span><span>Available models</span><span>Action</span>
+        </div>
+        <div id="onboarding-providers" class="onboarding-providers"></div>
+      </section>
+
+      <section class="privacy-note">
+        <strong>Provider-owned sign-in</strong>
+        <p>Installation and authentication run through the official provider CLI. Cinematic TVC Director never reads or stores your password, API key, or subscription details.</p>
+      </section>
+
+      <div class="onboarding-actions">
+        <div>
+          <strong id="selection-summary">Choose at least one ready account</strong>
+          <span>The expert preset can be adjusted before anything is saved.</span>
+        </div>
+        <div class="actions">
+          <button id="onboarding-cancel" type="button" class="ghost-button">Cancel</button>
+          <button id="continue-setup" type="button" class="primary-button" disabled>Continue with selected accounts</button>
+        </div>
+      </div>
+    </main>
+
+    <main id="studio-main" hidden>
       <section class="account-band" aria-labelledby="account-heading">
         <div class="section-copy">
           <span class="eyebrow">AI ACCOUNTS</span>
@@ -119,7 +159,7 @@
       </div>
     </main>
 
-    <footer class="actionbar">
+    <footer id="editor-actions" class="actionbar" hidden>
       <div><strong id="change-status">No unsaved changes</strong><span>Nothing is written until final approval.</span></div>
       <div class="actions">
         <button id="cancel" type="button" class="ghost-button">Cancel</button>

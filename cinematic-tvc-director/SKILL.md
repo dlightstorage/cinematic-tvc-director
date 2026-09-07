@@ -43,7 +43,8 @@ Codex, Claude or both and assigns reported models and effort from the role's TVC
 complexity. Its review screen exposes every role for overrides. `assign` remains
 the advanced command for individual roles. `skills attach` adds domain guidance.
 
-Use `studio` for the local visual crew editor. It preserves current assignments,
+Use `onboard` for visual first-run account preparation and automatic host-skill
+installation. Use `studio` for the local visual crew editor. It preserves current assignments,
 writes the same validated runtime config only after Save & Apply, and returns the
 activated crew summary to the terminal. Use `studio --terminal` for the classic
 terminal control room. Use `catalog refresh` and

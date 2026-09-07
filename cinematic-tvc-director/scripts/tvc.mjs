@@ -27,8 +27,9 @@ import { plans } from './lib/plans.mjs';
 import { migrateLegacy } from './lib/migrate.mjs';
 import { interactiveSetup } from './setup-wizard.mjs';
 
-const help = `Cinematic TVC Director 0.5.0
+const help = `Cinematic TVC Director 0.6.0
 
+  tvc onboard                       Open first-run account and crew setup
   tvc setup                         Account choice, automatic preset and approval wizard
   tvc setup --provider codex [--model MODEL] [--enable LIST] [--scope global|project]
   tvc doctor                         Discover installed CLIs, auth and models
@@ -160,6 +161,12 @@ async function main() {
     throw new Error('Unknown catalog command.');
   }
   if (command === 'plans') return show(plans(subcommand));
+  if (command === 'onboard') {
+    const module = await import('./studio.mjs');
+    const port = flags.port === undefined ? 0 : Number(flags.port);
+    required(Number.isInteger(port) && port >= 0 && port <= 65535, 'port must be 0..65535.');
+    return show(await module.onboard({ port, openBrowser: !flags['no-open'] }));
+  }
   if (command === 'studio') {
     if (flags.terminal) {
       const module = await import('./terminal-studio.mjs');

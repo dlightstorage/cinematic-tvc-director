@@ -1,13 +1,12 @@
 import * as prompts from './lib/prompts.mjs';
 import { existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { ROLES } from './lib/roles.mjs';
 import { configLocation, loadConfig, validateConfig, writeConfig } from './lib/config.mjs';
 import { discover } from './lib/adapter.mjs';
 import { installProvider } from './lib/install.mjs';
 import { ACCOUNT_MODES, buildRecommendedConfig } from './lib/tvc-presets.mjs';
+import { CORE_PROVIDERS, loginProvider, providerRecord, providerState, loginCommand } from './lib/accounts.mjs';
 
-const CORE_PROVIDERS = Object.freeze(['codex', 'claude']);
 const GROUPS = Object.freeze([
   { id: 'strategy', label: 'Strategy, concept and story', roles: ['creative', 'research', 'treatment', 'storyboard'] },
   { id: 'picture', label: 'Picture and production world', roles: ['dop', 'colorist', 'production-design'] },
@@ -45,19 +44,12 @@ function table(headers, rows, widths) {
   return [line, row(headers), line, ...rows.map(row), line].join('\n');
 }
 
-function providerRecord(report, key) { return report.discovered.find(item => item.key === key) || null; }
-function providerState(report, key) {
-  const item = providerRecord(report, key);
-  if (!item) return 'install required';
-  if (item.authenticated === true) return 'ready';
-  if (item.authenticated === false) return 'sign-in required';
-  return 'verification required';
-}
+function readableProviderState(report, key) { return providerState(report, key).replaceAll('-', ' '); }
 
 export function renderDiscovery(report) {
   const rows = CORE_PROVIDERS.map(key => {
     const item = providerRecord(report, key);
-    return [key === 'codex' ? 'Codex' : 'Claude', providerState(report, key), item?.models?.values?.length || 0, item?.version || 'not installed'];
+    return [key === 'codex' ? 'Codex' : 'Claude', readableProviderState(report, key), item?.models?.values?.length || 0, item?.version || 'not installed'];
   });
   return table(['Account', 'Status', 'Models', 'CLI version'], rows, [10, 19, 6, 27]);
 }
@@ -116,8 +108,7 @@ function accountModeFor(config) {
   return 'codex';
 }
 
-function accountHint(report, providers) { return providers.map(key => `${key}: ${providerState(report, key)}`).join(', '); }
-function loginCommand(provider) { return provider === 'codex' ? 'codex login' : 'claude auth login'; }
+function accountHint(report, providers) { return providers.map(key => `${key}: ${readableProviderState(report, key)}`).join(', '); }
 
 async function rediscover(spin, message) {
   spin.start(message);
@@ -148,13 +139,12 @@ async function ensureAccounts(providers, initialReport, spin) {
         `${provider === 'codex' ? 'Codex' : 'Claude'} sign-in`,
       );
       const signIn = answer(await prompts.confirm({ message: `Sign in to ${provider} now?`, initialValue: true }));
-      if (!signIn) throw new SetupRequired(`No settings changed. Sign in later with: ${loginCommand(provider)}`);
-      const args = provider === 'codex' ? ['login'] : ['auth', 'login'];
-      spawnSync(entry.path || entry.binary || provider, args, { stdio: 'inherit', windowsHide: false, shell: process.platform === 'win32' });
+      if (!signIn) throw new SetupRequired(`No settings changed. Sign in later with: ${loginCommand(provider).label}`);
+      await loginProvider(provider, report);
       report = await rediscover(spin, `Verifying ${provider} account access`);
       entry = providerRecord(report, provider);
       if (entry?.authenticated !== true) {
-        throw new SetupRequired(`${provider} is not ready yet. Complete sign-in with: ${loginCommand(provider)}, then rerun tvc setup.`);
+        throw new SetupRequired(`${provider} is not ready yet. Complete sign-in with: ${loginCommand(provider).label}, then rerun tvc setup.`);
       }
     }
   }

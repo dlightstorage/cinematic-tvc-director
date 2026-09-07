@@ -7,10 +7,11 @@ import { stdout } from 'node:process';
 import { ROLES } from './lib/roles.mjs';
 import { configLocation, loadConfig, validateConfig, writeConfig } from './lib/config.mjs';
 import { discover } from './lib/adapter.mjs';
+import { installProvider, installSkill } from './lib/install.mjs';
+import { CORE_PROVIDERS, loginProvider, providerState } from './lib/accounts.mjs';
 import { ACCOUNT_MODES, ROLE_PRESETS, buildRecommendedConfig } from './lib/tvc-presets.mjs';
 import { GROUPS, renderCrewTable, renderProductionSummary } from './setup-wizard.mjs';
 
-const CORE_PROVIDERS = ['codex', 'claude'];
 const ASSETS = Object.freeze({
   '': ['index.html', 'text/html; charset=utf-8'],
   'app.js': ['app.js', 'text/javascript; charset=utf-8'],
@@ -26,14 +27,6 @@ function accountModeFor(config) {
   return 'codex';
 }
 
-function providerState(report, key) {
-  const entry = report.discovered.find(item => item.key === key);
-  if (!entry) return 'install-required';
-  if (entry.authenticated === true) return 'ready';
-  if (entry.authenticated === false) return 'sign-in-required';
-  return 'verification-required';
-}
-
 function roleBinding(config, roleId) {
   return roleId === 'director' ? config.orchestrator : config.roles[roleId] || config.default;
 }
@@ -46,13 +39,14 @@ function metadata(config) {
   };
 }
 
-function clientState({ config, report, cwd, scope, basis, complexity }) {
+function clientState({ config, report, cwd, scope, basis, complexity, onboarding }) {
   const groupByRole = Object.fromEntries(GROUPS.flatMap(group => group.roles.map(id => [id, group.id])));
   groupByRole.director = 'direction';
   return {
-    product: { name: 'Cinematic TVC Director', version: '0.5.0' },
+    product: { name: 'Cinematic TVC Director', version: '0.6.0' },
     cwd,
     scope,
+    onboarding,
     accountMode: accountModeFor(config),
     config,
     basis,
@@ -64,7 +58,7 @@ function clientState({ config, report, cwd, scope, basis, complexity }) {
       const entry = report.discovered.find(item => item.key === key);
       return {
         key,
-        name: key === 'codex' ? 'Codex' : 'Claude',
+        name: key === 'codex' ? 'Codex (OpenAI)' : 'Claude Code',
         state: providerState(report, key),
         version: entry?.version || 'Not installed',
         models: entry?.models?.values || [],
@@ -148,10 +142,21 @@ function validateStudioConfig(candidate, { mode, report, original }) {
   return validateConfig(config);
 }
 
-export async function createStudioSession({ cwd = process.cwd(), port = 0, openBrowser = true, report: suppliedReport } = {}) {
-  const report = suppliedReport || await discover();
+export async function createStudioSession({
+  cwd = process.cwd(),
+  port = 0,
+  openBrowser = true,
+  mode = 'studio',
+  report: suppliedReport,
+  discoverFn = discover,
+  installProviderFn = installProvider,
+  loginProviderFn = loginProvider,
+  installSkillFn = installSkill,
+} = {}) {
+  let report = suppliedReport || await discoverFn();
   const location = configLocation(cwd);
   const existing = existsSync(location.path) ? loadConfig(cwd) : null;
+  const onboarding = mode === 'onboard' || !existing;
   const defaultMode = existing ? accountModeFor(existing)
     : CORE_PROVIDERS.every(key => providerState(report, key) === 'ready') ? 'dual'
       : providerState(report, 'claude') === 'ready' ? 'claude' : 'codex';
@@ -159,10 +164,11 @@ export async function createStudioSession({ cwd = process.cwd(), port = 0, openB
     : buildRecommendedConfig({ accountMode: defaultMode, report });
   const token = randomBytes(24).toString('hex');
   const prefix = `/${token}/`;
-  let current = clientState({ ...initial, report, cwd, scope: location.source });
+  let current = clientState({ ...initial, report, cwd, scope: location.source, onboarding });
   let finish;
   const done = new Promise(resolveDone => { finish = resolveDone; });
   let settled = false;
+  let providerOperation = false;
 
   const server = createServer(async (request, response) => {
     try {
@@ -185,12 +191,33 @@ export async function createStudioSession({ cwd = process.cwd(), port = 0, openB
         return response.end(body);
       }
       if (request.method === 'GET' && route === 'api/state') return json(response, 200, current);
+      if (request.method === 'POST' && route === 'api/provider') {
+        if (providerOperation) return json(response, 409, { error: 'Another account operation is still running.' });
+        const { provider, action } = await bodyJSON(request);
+        if (!CORE_PROVIDERS.includes(provider)) return json(response, 400, { error: 'Choose Codex or Claude.' });
+        if (!['install', 'login', 'refresh'].includes(action)) return json(response, 400, { error: 'Unknown account action.' });
+        const before = providerState(report, provider);
+        if (action === 'install' && before !== 'install-required') return json(response, 409, { error: `${provider} CLI is already installed.` });
+        if (action === 'login' && before === 'install-required') return json(response, 409, { error: `Install ${provider} CLI before signing in.` });
+        if (action === 'login' && before === 'ready') return json(response, 409, { error: `${provider} is already signed in.` });
+        providerOperation = true;
+        try {
+          if (action === 'install') await installProviderFn(provider);
+          if (action === 'login') await loginProviderFn(provider, report);
+          report = await discoverFn();
+          current = clientState({ ...current, report, cwd, onboarding });
+          const status = providerState(report, provider);
+          return json(response, 200, { ...current, accountResult: { provider, action, status } });
+        } finally {
+          providerOperation = false;
+        }
+      }
       if (request.method === 'POST' && route === 'api/preset') {
         const { accountMode } = await bodyJSON(request);
         if (!Object.hasOwn(ACCOUNT_MODES, accountMode)) return json(response, 400, { error: 'Unknown account mode.' });
         assertReady(report, accountMode);
         const preset = buildRecommendedConfig({ accountMode, report, existing: current.config });
-        current = clientState({ ...preset, report, cwd, scope: current.scope });
+        current = clientState({ ...preset, report, cwd, scope: current.scope, onboarding });
         return json(response, 200, current);
       }
       if (request.method === 'POST' && route === 'api/save') {
@@ -207,9 +234,19 @@ export async function createStudioSession({ cwd = process.cwd(), port = 0, openB
           complexity: payload.complexity || current.complexity,
         };
         const saved = writeConfig(config, { scope: payload.scope, cwd });
-        current = clientState({ config, report, cwd, scope: payload.scope, basis: config.setup.basis, complexity: config.setup.complexity });
-        const result = { action: 'saved', saved, scope: payload.scope, accountMode: payload.accountMode, config, basis: current.basis, complexity: current.complexity };
-        json(response, 200, { ok: true, saved });
+        current = clientState({ config, report, cwd, scope: payload.scope, basis: config.setup.basis, complexity: config.setup.complexity, onboarding });
+        const skillInstalls = [];
+        const warnings = [];
+        if (onboarding) for (const provider of config.enabled) {
+          try {
+            const installed = installSkillFn(provider, undefined, true);
+            skillInstalls.push({ provider, destination: installed.destination });
+          } catch (error) {
+            warnings.push(`${provider}: ${error.message}`);
+          }
+        }
+        const result = { action: 'saved', saved, scope: payload.scope, accountMode: payload.accountMode, config, basis: current.basis, complexity: current.complexity, skillInstalls, warnings };
+        json(response, 200, { ok: true, saved, skillInstalls, warnings });
         settled = true;
         finish(result);
         return setTimeout(() => {
@@ -246,7 +283,8 @@ export async function createStudioSession({ cwd = process.cwd(), port = 0, openB
 }
 
 export async function studio(options = {}) {
-  stdout.write('Cinematic TVC Studio is checking your accounts and models...\n');
+  const firstRun = options.mode === 'onboard';
+  stdout.write(`${firstRun ? 'Cinematic TVC Onboarding' : 'Cinematic TVC Studio'} is checking your accounts and models...\n`);
   const session = await createStudioSession(options);
   stdout.write(`Studio opened at ${session.url}\nKeep this terminal open until you choose Save & Apply or Cancel.\n`);
   const result = await session.done;
@@ -259,6 +297,12 @@ export async function studio(options = {}) {
     renderCrewTable(result.config, result.basis, result.complexity),
     '',
     `Saved: ${result.saved}`,
+    ...(result.skillInstalls?.length ? [`Skills: ${result.skillInstalls.map(item => `${item.provider} -> ${item.destination}`).join('; ')}`] : []),
+    ...(result.warnings?.length ? [`Warnings: ${result.warnings.join('; ')}`] : []),
     'The selected crew is active for future TVC work.',
   ].join('\n');
+}
+
+export async function onboard(options = {}) {
+  return studio({ ...options, mode: 'onboard' });
 }

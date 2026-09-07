@@ -3,6 +3,9 @@ const api = route => `api/${route}`;
 let state;
 let dirty = false;
 let busy = false;
+let busyProvider = '';
+let onboardingActive = false;
+const selectedAccounts = new Set();
 
 function node(tag, options = {}, children = []) {
   const element = document.createElement(tag);
@@ -42,6 +45,12 @@ function setBinding(roleId, binding) {
 function provider(key) { return state.providers.find(item => item.key === key); }
 function selectedProviders() { return state.accountModes[state.accountMode].providers; }
 
+function modeForSelection() {
+  if (selectedAccounts.has('codex') && selectedAccounts.has('claude')) return 'dual';
+  if (selectedAccounts.has('claude')) return 'claude';
+  return 'codex';
+}
+
 function option(value, label = value) {
   return node('option', { value, text: label });
 }
@@ -64,6 +73,112 @@ function showToast(message, error = false) {
   toast.className = `toast show${error ? ' error' : ''}`;
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => { toast.className = 'toast'; }, 3600);
+}
+
+function setJourney(step) {
+  const order = ['accounts', 'crew', 'apply'];
+  const active = order.indexOf(step);
+  document.querySelectorAll('.journey-step').forEach(item => {
+    const index = order.indexOf(item.dataset.step);
+    item.classList.toggle('active', index === active);
+    item.classList.toggle('complete', index < active);
+  });
+}
+
+function showEditor() {
+  onboardingActive = false;
+  $('#onboarding').hidden = true;
+  $('#studio-main').hidden = false;
+  $('#editor-actions').hidden = false;
+  setJourney('crew');
+}
+
+function providerActionFor(item) {
+  if (item.state === 'install-required') return { action: 'install', label: 'Install CLI' };
+  if (item.state === 'sign-in-required') return { action: 'login', label: 'Sign in' };
+  return { action: 'refresh', label: item.state === 'ready' ? 'Check again' : 'Verify account' };
+}
+
+function providerStateLabel(stateName) {
+  return {
+    ready: 'Ready',
+    'install-required': 'CLI not installed',
+    'sign-in-required': 'Sign-in required',
+    'verification-required': 'Needs verification',
+  }[stateName] || stateName.replaceAll('-', ' ');
+}
+
+function renderOnboarding() {
+  const list = $('#onboarding-providers');
+  list.replaceChildren();
+  for (const item of state.providers) {
+    if (item.state !== 'ready') selectedAccounts.delete(item.key);
+    const action = providerActionFor(item);
+    const checkbox = node('input', { type: 'checkbox', class: 'provider-check', 'aria-label': `Use ${item.name}` });
+    checkbox.checked = selectedAccounts.has(item.key);
+    checkbox.disabled = item.state !== 'ready' || Boolean(busyProvider);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedAccounts.add(item.key);
+      else selectedAccounts.delete(item.key);
+      renderOnboarding();
+    });
+    const actionButton = node('button', {
+      type: 'button',
+      class: 'secondary-button provider-action',
+      text: busyProvider === item.key ? 'Working...' : action.label,
+      'aria-busy': String(busyProvider === item.key),
+    });
+    actionButton.disabled = Boolean(busyProvider);
+    actionButton.addEventListener('click', () => runProviderAction(item.key, action.action));
+    const description = item.key === 'codex'
+      ? 'Creative direction, visual systems and final synthesis'
+      : 'Research, treatments, continuity and prompt writing';
+    list.append(node('div', { class: 'provider-setup-row' }, [
+      node('div', { class: 'provider-identity' }, [checkbox, node('div', {}, [node('strong', { text: item.name }), node('small', { text: description })])]),
+      node('div', { class: 'provider-state' }, [node('span', { class: `provider-state-badge ${item.state}`, text: providerStateLabel(item.state) }), node('small', { text: item.version })]),
+      node('div', { class: 'provider-models' }, [node('strong', { text: String(item.models.length) }), node('small', { text: item.models.length ? 'Models detected locally' : 'No models reported yet' })]),
+      actionButton,
+    ]));
+  }
+  const selected = [...selectedAccounts];
+  $('#selection-summary').textContent = selected.length
+    ? `${selected.map(id => provider(id).name).join(' + ')} selected`
+    : 'Choose at least one ready account';
+  $('#continue-setup').disabled = selected.length === 0 || Boolean(busyProvider);
+}
+
+async function runProviderAction(providerId, action) {
+  try {
+    busyProvider = providerId;
+    renderOnboarding();
+    state = await request('provider', { method: 'POST', body: JSON.stringify({ provider: providerId, action }) });
+    const item = provider(providerId);
+    if (item.state === 'ready') selectedAccounts.add(providerId);
+    showToast(item.state === 'ready' ? `${item.name} is ready.` : `${item.name}: ${providerStateLabel(item.state)}.`);
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    busyProvider = '';
+    renderOnboarding();
+  }
+}
+
+async function continueSetup() {
+  if (!selectedAccounts.size || busy) return;
+  try {
+    busy = true;
+    $('#continue-setup').disabled = true;
+    state = await request('preset', { method: 'POST', body: JSON.stringify({ accountMode: modeForSelection() }) });
+    dirty = true;
+    showEditor();
+    renderAll();
+    showToast('Expert advertising crew built. Review every role before applying.');
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    busy = false;
+    if (onboardingActive) renderOnboarding();
+  }
 }
 
 function renderAccounts() {
@@ -226,6 +341,7 @@ function reviewSave() {
     fact('Director', `${director.implementer} / ${director.model || 'default'}`),
     fact('Scope', state.scope),
   );
+  setJourney('apply');
   $('#confirm-dialog').showModal();
 }
 
@@ -241,10 +357,15 @@ async function save() {
     });
     dirty = false;
     window.onbeforeunload = null;
+    const detail = result.warnings?.length
+      ? `Settings were saved. Skill installation warning: ${result.warnings.join(' ')}`
+      : result.skillInstalls?.length
+        ? 'Your settings and selected agent skills are ready. The full crew is now printed in the terminal.'
+        : 'Your settings are active. The full crew is now printed in the terminal.';
     document.body.replaceChildren(node('div', { class: 'complete-screen' }, [
       node('div', { class: 'loader-mark', text: 'OK' }),
       node('h1', { text: 'Production crew activated' }),
-      node('p', { text: 'Your settings are now printed in the terminal. This tab will close.' }),
+      node('p', { text: detail }),
     ]));
     setTimeout(() => window.close(), 350);
     return result;
@@ -295,9 +416,14 @@ function bindEvents() {
     if (tab.dataset.tab === 'technical') renderTechnical();
   });
   $('#reset-preset').addEventListener('click', () => changeMode(state.accountMode, true));
+  $('#continue-setup').addEventListener('click', continueSetup);
+  $('#onboarding-cancel').addEventListener('click', cancel);
   $('#save').addEventListener('click', reviewSave);
   $('#confirm-save').addEventListener('click', event => { event.preventDefault(); save(); });
   $('#cancel').addEventListener('click', cancel);
+  $('#confirm-dialog').addEventListener('close', () => {
+    if (!busy) setJourney('crew');
+  });
   window.onbeforeunload = () => dirty ? true : undefined;
 }
 
@@ -307,7 +433,18 @@ async function start() {
     const groups = $('#group-filter');
     for (const group of state.groups) groups.append(option(group.id, group.label));
     bindEvents();
-    renderAll();
+    onboardingActive = Boolean(state.onboarding);
+    for (const providerId of selectedProviders()) {
+      if (provider(providerId)?.state === 'ready') selectedAccounts.add(providerId);
+    }
+    if (onboardingActive) {
+      $('#onboarding').hidden = false;
+      setJourney('accounts');
+      renderOnboarding();
+    } else {
+      showEditor();
+      renderAll();
+    }
     $('#loading').hidden = true;
     $('#app').hidden = false;
   } catch (error) {

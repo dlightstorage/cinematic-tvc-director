@@ -15,11 +15,13 @@ This is the setup companion to `cinematic-tvc-director`.
 ## Flow
 
 1. Locate the sibling `cinematic-tvc-director` skill in the current agent's skill
-   directory. Prefer the global `tvc` command when it exists; otherwise run
-   `node <cinematic-tvc-director>/scripts/tvc.mjs setup`.
-2. Use `tvc setup` for first-time CLI installation and sign-in. Use `tvc studio`
-   for visual configuration or later edits. Both write the same validated config;
-   do not replace either flow with a hand-written config.
+   directory. Prefer `tvc onboard` when the global command exists; otherwise run
+   `node <cinematic-tvc-director>/scripts/tvc.mjs onboard`. Use `setup` instead
+   when a browser cannot be opened.
+2. Use `tvc onboard` for visual first-time CLI installation, sign-in, account
+   selection and host-skill installation. Use `tvc setup` for terminal-only first
+   runs and `tvc studio` for later visual edits. All flows write the same validated config;
+   do not replace these flows with a hand-written config.
 3. Let discovery report Codex and Claude CLI, authentication state and model IDs.
 4. Ask only which account mode the creative user wants: Codex only, Codex + Claude,
    or Claude only. Offer official CLI installation and provider-owned sign-in when

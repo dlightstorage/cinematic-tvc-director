@@ -2,10 +2,10 @@
 .tvc/
 projects/
 node_modules/
+.playwright-cli/
 *.tgz
 dist/
 .env
 .env.*
 !.env.example
 .DS_Store
-

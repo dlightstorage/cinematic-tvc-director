@@ -17,9 +17,22 @@ single-stage work.
 
 ## Install
 
-Requirements: Node.js 22+, Git, and at least one installed/authenticated agent CLI.
-The primary installation matches the Delegate Skills flow shown in the reference
-video. GitHub access is required while this repository is private:
+Requirements: Node.js 22+ and Git. The recommended first-run command installs the
+terminal app from the public repository, then opens the local onboarding Studio:
+
+```powershell
+npm.cmd install --global "git+https://github.com/dlightstorage/cinematic-tvc-director.git"; if ($LASTEXITCODE -eq 0) { tvc onboard }
+```
+
+The first screen detects Codex and Claude Code. Install or sign in to either one,
+or prepare both, then select the ready accounts and continue. The official
+provider CLI owns authentication; this package does not read or store credentials.
+It detects account-reported models, builds the complete 24-role advertising crew,
+lets you review every model and effort assignment, and installs the skill into the
+selected agent hosts when you approve.
+
+The separate Skills CLI installation matches the Delegate Skills flow shown in
+the reference video and is useful when only the skill files are wanted:
 
 ```powershell
 npx skills add dlightstorage/cinematic-tvc-director
@@ -45,16 +58,15 @@ selects reported model IDs and reasoning effort per role complexity, then displa
 linked model profiles, the director, all 24 advertising roles and their attached
 reference counts before saving.
 
-The optional global `tvc` command can be installed straight from the public GitHub
-repository without cloning:
+After installation, reopen first-run setup or edit an existing crew at any time:
 
 ```powershell
-npm.cmd install --global "git+https://github.com/dlightstorage/cinematic-tvc-director.git"
-tvc setup
+tvc onboard
 tvc studio
 ```
 
-`tvc studio` opens a private localhost configuration page and keeps the terminal
+`tvc onboard` handles account readiness, automatic presets and skill installation.
+`tvc studio` opens the same private localhost configuration page and keeps the terminal
 waiting. Edit account mode, provider, exact model, reasoning effort, scope and
 production controls, then choose **Save & Apply**. The temporary page shuts down
 and the activated 24-role crew is printed back in the terminal. Existing settings
@@ -80,7 +92,8 @@ comparison installation. Existing cinematic source files are not discarded.
 
 ## Choose Your Fleet
 
-Interactive `tvc setup` is designed for advertising creatives rather than coding
+Visual `tvc onboard` is the recommended first-time experience. Interactive
+`tvc setup` remains available for terminal-only environments. Both are designed for advertising creatives rather than coding
 fleet administration. It asks whether the production uses Codex, Claude, or both;
 offers official CLI installation and provider-owned sign-in when needed; then
 builds an expert preset automatically. The user can modify one role, a department

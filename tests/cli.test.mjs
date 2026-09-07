@@ -115,3 +115,75 @@ test('visual Studio edits and saves the validated runtime configuration', async 
   assert.deepEqual(saved.roles.creative, { implementer: 'claude', model: 'sonnet', effort: 'high' });
   assert.equal(saved.setup.preset, 'advertising-studio.v1');
 });
+
+test('visual onboarding prepares one or both accounts and installs selected host skills', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'tvc-onboard-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const previousHome = process.env.TVC_HOME;
+  process.env.TVC_HOME = join(dir, 'settings');
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.TVC_HOME;
+    else process.env.TVC_HOME = previousHome;
+  });
+
+  let discovered = { discovered: [
+    { key: 'codex', authenticated: false, version: 'test-codex', supports: ['model', 'effort'], models: { status: 'reported', values: ['gpt-6-astra', 'gpt-5.6-sol'] } },
+  ] };
+  const skillHosts = [];
+  const session = await createStudioSession({
+    cwd: dir,
+    mode: 'onboard',
+    openBrowser: false,
+    report: structuredClone(discovered),
+    discoverFn: async () => structuredClone(discovered),
+    installProviderFn: async provider => {
+      assert.equal(provider, 'claude');
+      discovered.discovered.push({ key: 'claude', authenticated: false, version: 'test-claude', supports: ['model', 'effort'], models: { status: 'aliases', values: ['opus', 'sonnet'] } });
+    },
+    loginProviderFn: async provider => {
+      const entry = discovered.discovered.find(item => item.key === provider);
+      assert.ok(entry);
+      entry.authenticated = true;
+    },
+    installSkillFn: host => {
+      skillHosts.push(host);
+      return { destination: join(dir, `${host}-skills`, 'cinematic-tvc-director') };
+    },
+  });
+  t.after(() => session.close());
+  const post = (route, body) => fetch(new URL(route, session.url), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  let state = await (await fetch(new URL('api/state', session.url))).json();
+  assert.equal(state.onboarding, true);
+  assert.equal(state.providers.find(item => item.key === 'codex').state, 'sign-in-required');
+  assert.equal(state.providers.find(item => item.key === 'claude').state, 'install-required');
+  assert.equal((await post('api/provider', { provider: 'agy', action: 'refresh' })).status, 400);
+
+  assert.equal((await post('api/provider', { provider: 'codex', action: 'login' })).status, 200);
+  assert.equal((await post('api/provider', { provider: 'claude', action: 'install' })).status, 200);
+  state = await (await post('api/provider', { provider: 'claude', action: 'login' })).json();
+  assert.ok(state.providers.every(item => item.state === 'ready'));
+
+  state = await (await post('api/preset', { accountMode: 'dual' })).json();
+  assert.equal(state.accountMode, 'dual');
+  assert.equal(state.config.roles.treatment.implementer, 'claude');
+  const saveResponse = await post('api/save', {
+    config: state.config,
+    accountMode: 'dual',
+    scope: 'global',
+    basis: state.basis,
+    complexity: state.complexity,
+  });
+  const saveText = await saveResponse.text();
+  assert.equal(saveResponse.status, 200, saveText);
+  const savedResponse = JSON.parse(saveText);
+  assert.deepEqual(skillHosts, ['codex', 'claude']);
+  assert.equal(savedResponse.skillInstalls.length, 2);
+  const result = await session.done;
+  assert.equal(result.action, 'saved');
+  assert.equal(JSON.parse(readFileSync(join(process.env.TVC_HOME, 'config.json'))).setup.accountMode, 'dual');
+});
