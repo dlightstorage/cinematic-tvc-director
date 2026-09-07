@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, delimiter } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -12,12 +12,24 @@ export function installSkill(host, target, update = false) {
   const destination = join(hostRoot, 'cinematic-tvc-director');
   const setupSource = join(dirname(SKILL_ROOT), 'cinematic-tvc-setup');
   const setupDestination = join(hostRoot, 'cinematic-tvc-setup');
-  const existed = existsSync(destination);
-  if (existed && !update) throw new Error(`Skill already exists at ${destination}. Pass --update after reviewing the new version, or install to a separate --target.`);
   mkdirSync(hostRoot, { recursive: true });
-  cpSync(SKILL_ROOT, destination, { recursive: true });
-  if (existsSync(setupSource)) cpSync(setupSource, setupDestination, { recursive: true });
-  return { destination, setupDestination: existsSync(setupSource) ? setupDestination : null, updated: existed };
+  const sync = (source, targetPath) => {
+    let stat = null;
+    try { stat = lstatSync(targetPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (stat && !update) throw new Error(`Skill already exists at ${targetPath}. Pass --update after reviewing the new version, or install to a separate --target.`);
+    if (stat?.isSymbolicLink()) return { existed: true, linked: true };
+    if (stat && !stat.isDirectory()) throw new Error(`Cannot overwrite non-directory skill path: ${targetPath}`);
+    cpSync(source, targetPath, { recursive: true });
+    return { existed: Boolean(stat), linked: false };
+  };
+  const main = sync(SKILL_ROOT, destination);
+  const setup = existsSync(setupSource) ? sync(setupSource, setupDestination) : null;
+  return {
+    destination,
+    setupDestination: setup ? setupDestination : null,
+    updated: main.existed,
+    preservedSymlinks: [main.linked ? destination : null, setup?.linked ? setupDestination : null].filter(Boolean),
+  };
 }
 function run(command, args) {
   return new Promise((resolveResult, reject) => {

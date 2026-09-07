@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,11 @@ test('terminal setup, custom provider, model binding, install and project snapsh
   const installed = call('install-skill','--target',join(dir,'skills'));
   assert.ok(existsSync(join(installed.destination,'scripts/tvc.mjs')));
   assert.ok(existsSync(join(dir,'skills','cinematic-tvc-setup','SKILL.md')));
+  const linkedRoot = join(dir, 'linked-skills'); mkdirSync(linkedRoot);
+  symlinkSync(installed.destination, join(linkedRoot, 'cinematic-tvc-director'), process.platform === 'win32' ? 'junction' : 'dir');
+  symlinkSync(join(dir, 'skills', 'cinematic-tvc-setup'), join(linkedRoot, 'cinematic-tvc-setup'), process.platform === 'win32' ? 'junction' : 'dir');
+  const linkedUpdate = call('install-skill', '--target', linkedRoot, '--update');
+  assert.equal(linkedUpdate.preservedSymlinks.length, 2);
   const duplicate = spawnSync(process.execPath,[cli,'install-skill','--target',join(dir,'skills')],{env,cwd:dir,encoding:'utf8',windowsHide:true});
   assert.equal(duplicate.status,1);
   assert.match(duplicate.stderr,/already exists/);
